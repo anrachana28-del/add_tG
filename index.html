@@ -8,141 +8,257 @@
 <style>
 body {font-family:'JetBrains Mono',monospace;background:#121213;color:#fff;margin:0;padding:0;}
 .container{max-width:900px;margin:auto;padding:20px;}
-section{background:#1f2937;border-radius:16px;padding:20px;margin-bottom:20px;box-shadow:0 8px 20px rgba(0,0,0,0.5);}
+section{background:#1f2937;border-radius:16px;padding:20px;margin-bottom:20px;box-shadow:0 8px 20px rgba(0,0,0,0.5);position:relative;}
 .card-title{font-size:20px;font-weight:700;margin-bottom:15px;color:#22c55e;}
-input, select{width:100%;padding:12px;margin-top:12px;border-radius:12px;border:none;background:#111827;color:#fff;font-size:16px;box-sizing:border-box;}
+input{width:100%;padding:12px;margin-top:12px;border-radius:12px;border:none;background:#111827;color:#fff;font-size:16px;box-sizing:border-box;}
 button{border:none;padding:10px;border-radius:8px;cursor:pointer;font-size:15px;transition:all .2s ease;box-sizing:border-box;}
 button:active{transform:scale(.96);}
 .btn-group{display:flex;gap:8px;margin-top:20px;flex-wrap:wrap;}
-.btn-group button{flex:1;min-width:100px;}
-.nav-btn{background:#ffffffeb;color:black;}
-.nav-btn:hover{background:#717875;}
-#logoutBtn{background:#c67474;}
-#logoutBtn:hover{background:#dc2626;}
-#uploadBtn,#exportBtn{background:#22c55e;color:#fff;}
-#deleteProcessingBtn{background:#fff7f7;color: rgb(249, 5, 5);}
-#deleteProcessingBtn:hover{background:#ed0909; color: white;}
-#downloadBtn,#downloadHistoryBtn{margin-top:12px;width:100%;color:#000;}
-ul{list-style:none;padding:0;margin-top:10px;word-break:break-word;}
-li{padding:6px;border-bottom:1px solid rgba(255,255,255,0.05);border-radius:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
-.username-highlight{display:inline-block;padding:2px 6px;border-radius:4px;background: linear-gradient(90deg,#63e209,#0ea5e9);animation: glow 1.5s ease-in-out infinite alternate;}
+.btn-group button{flex:1;min-width:120px;background:#ffffffeb;color:black;border-radius:8px;}
+.btn-group button:hover{background:#717875;color:white;}
+#uploadBtn,#addAccountBtn,#exportBtn{background:#22c55e;color:#fff;}
+#deleteProcessingBtn{background:#fff7f7;color:red;}
+#downloadBtn,#downloadHistoryBtn{margin-top:12px;width:100%;background:#38bdf8;color:#000;}
+ul{list-style:none;padding:0;margin-top:10px;}
+li{padding:6px;border-bottom:1px solid rgba(255,255,255,0.05);display:flex;align-items:center;gap:8px;}
+.username-highlight{padding:2px 6px;border-radius:4px;background:linear-gradient(90deg,#63e209,#0ea5e9);animation:glow 1.5s infinite alternate;}
 .avatar{width:30px;height:30px;border-radius:50%;object-fit:cover;border:1px solid #fff;}
+@keyframes glow{0%{opacity:0.8;}100%{opacity:1;}}
 .stats{margin-top:10px;font-size:14px;color:#38bdf8;}
 .table-responsive{width:100%;overflow-x:auto;}
 table{width:100%;border-collapse:collapse;}
 th,td{padding:8px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1);}
 th{background:#374151;color:#fff;}
-#memberList{max-height:50vh;overflow-y:auto;padding-right:4px;}
-#loadingOverlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px;display:none;z-index:9999;}
-@keyframes glow{0%{background-position:0%;}50%{background-position:100%;}100%{background-position:0%;}}
+#memberList{max-height:50vh;overflow-y:auto;}
+.page{display:none;}
+.page.active{display:block;}
+/* Loading spinner */
+#loadingOverlay{display:none;position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);color:#fff;display:flex;align-items:center;justify-content:center;flex-direction:column;border-radius:16px;z-index:100;}
+.spinner{border:6px solid #f3f3f3;border-top:6px solid #22c55e;border-radius:50%;width:50px;height:50px;animation:spin 1s linear infinite;}
+@keyframes spin{0%{transform:rotate(0deg);}100%{transform:rotate(360deg);}}
 @media(max-width:600px){
   .container{padding:15px;}
   .btn-group button{flex:1 1 45%;font-size:14px;padding:10px;}
   input{font-size:14px;padding:10px;}
-  table, th, td{font-size:12px;}
-  ul#memberList{max-height:40vh;}
-  .username-highlight{padding:1px 4px;font-size:12px;}
+  table,th,td{font-size:12px;}
   .avatar{width:24px;height:24px;}
 }
 </style>
 </head>
 <body>
-<div id="loadingOverlay">Exporting Members... <span id="progressCount">0</span>/<span id="totalCount">0</span></div>
-
 <div class="container">
-  <section id="accountsPage">
-    <div class="card-title">Accounts Status</div>
-    <div class="table-responsive">
-      <table id="accountsTable">
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Phone</th>
-            <th>Status</th>
-            <th>FloodWait</th>
-            <th>Last Checked</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </div>
-  </section>
 
-  <section id="membersPage">
-    <div class="card-title">Export Members</div>
-    <input type="text" id="groupInput" placeholder="Enter Group Link or Username">
-    <button id="exportBtn">Export Members</button>
-    <div class="table-responsive" style="margin-top:10px;">
-      <table id="membersTable">
-        <thead>
-          <tr>
-            <th>Username</th>
-            <th>User ID</th>
-            <th>Avatar</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
+<!-- Navigation -->
+<div class="btn-group">
+  <button class="nav-btn" data-page="accountsPage">Accounts Status</button>
+  <button class="nav-btn" data-page="membersPage">Members List</button>
+  <button class="nav-btn" data-page="uploadPage">Upload Accounts</button>
+  <button class="nav-btn" data-page="historyPage">History</button>
+</div>
+
+<!-- Accounts Page -->
+<section id="accountsPage" class="page active">
+  <div class="card-title">Telegram Accounts Status</div>
+  <div class="table-responsive">
+    <table>
+      <thead><tr><th>ID</th><th>Phone</th><th>Status</th><th>FloodWait</th><th>Last Checked</th></tr></thead>
+      <tbody id="accountsTable"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- Members Page -->
+<section id="membersPage" class="page">
+  <div class="card-title">Members List</div>
+  <div style="margin-bottom:10px;">
+    <input type="text" id="groupInput" placeholder="Enter Telegram Group link or username">
+    <button id="fetchMembersBtn" style="margin-top:6px;">Fetch Members</button>
+  </div>
+
+  <!-- Loading Overlay -->
+  <div id="loadingOverlay">
+    <div class="spinner"></div>
+    <div style="margin-top:10px;font-size:18px;">Loading...</div>
+  </div>
+
+  <div style="margin-bottom:10px;">
+    <span id="exportCounter">0 / 0 exported</span>
+    <div style="background:#374151;border-radius:12px;height:12px;margin-top:4px;">
+      <div id="exportProgress" style="background:#22c55e;height:12px;width:0%;border-radius:12px;"></div>
     </div>
-  </section>
+  </div>
+  <ul id="memberList"></ul>
+  <button id="downloadBtn">Download Members</button>
+</section>
+
+<!-- Upload Accounts Page -->
+<section id="uploadPage" class="page">
+  <div class="card-title">Upload Telegram Accounts</div>
+  <input type="text" id="phoneInput" placeholder="Phone (+855...)">
+  <input type="text" id="apiIdInput" placeholder="API_ID">
+  <input type="text" id="apiHashInput" placeholder="API_HASH">
+  <input type="text" id="sessionInput" placeholder="Session String">
+  <button id="addAccountBtn">Add Account</button>
+  <div style="margin-top:12px;">
+    <input type="file" id="file" accept=".txt,.env">
+    <button id="uploadBtn">Upload File Accounts</button>
+  </div>
+  <div class="stats" id="uploadStats"></div>
+</section>
+
+<!-- History Page -->
+<section id="historyPage" class="page">
+  <div class="card-title">History</div>
+  <button id="downloadHistoryBtn">Download History</button>
+</section>
+
 </div>
 
 <script>
-async function fetchAccounts(){
-  const res = await fetch('/account-status');
-  const data = await res.json();
-  const tbody = document.querySelector('#accountsTable tbody');
-  tbody.innerHTML = '';
-  const now = Date.now();
-  for(const id in data){
-    const acc = data[id];
-    const tr = document.createElement('tr');
-    const floodWaitSec = acc.floodWaitUntil ? Math.max(0,Math.floor((acc.floodWaitUntil-now)/1000)) : 0;
-    const statusEmoji = acc.status==='active'?'🟢': acc.status==='floodwait'?'🔴':'🟡';
-    tr.innerHTML = `
-      <td>${id}</td>
-      <td>${acc.phone}</td>
-      <td>${statusEmoji} ${acc.status}</td>
-      <td>${acc.status==='floodwait'?formatTime(floodWaitSec):'-'}</td>
-      <td>${acc.lastChecked?new Date(acc.lastChecked).toLocaleTimeString():'-'}</td>
-    `;
-    tbody.appendChild(tr);
+// ===== Navigation =====
+const navButtons = document.querySelectorAll(".nav-btn");
+const pages = document.querySelectorAll(".page");
+navButtons.forEach(btn => {
+  btn.onclick = () => {
+    const target = btn.dataset.page;
+    pages.forEach(p => p.classList.remove("active"));
+    document.getElementById(target).classList.add("active");
   }
-}
-function formatTime(sec){
-  const m=Math.floor(sec/60), s=sec%60;
-  return `${m}m ${s}s`;
-}
-setInterval(fetchAccounts,1000);
-fetchAccounts();
-
-// ===== Export Members with Loading =====
-const exportBtn = document.getElementById('exportBtn');
-const groupInput = document.getElementById('groupInput');
-exportBtn.addEventListener('click',async()=>{
-  const group = groupInput.value.trim();
-  if(!group) return alert('Enter Group link or username!');
-  const overlay = document.getElementById('loadingOverlay');
-  const progress = document.getElementById('progressCount');
-  const total = document.getElementById('totalCount');
-  overlay.style.display='flex';
-  const tbody = document.querySelector('#membersTable tbody');
-  tbody.innerHTML='';
-  try{
-    const res = await fetch('/members',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({group})});
-    const members = await res.json();
-    total.textContent = members.length;
-    for(let i=0;i<members.length;i++){
-      const m = members[i];
-      const tr = document.createElement('tr');
-      tr.innerHTML = `<td>@${m.username||'-'}</td><td>${m.user_id}</td><td>${m.avatar?`<img class="avatar" src="${m.avatar}">`:'-'}</td>`;
-      tbody.appendChild(tr);
-      progress.textContent = i+1;
-      await new Promise(r=>setTimeout(r,50)); // small delay to show progress
-    }
-  }catch(err){ alert(err.message); }
-  overlay.style.display='none';
 });
+
+// ===== Accounts Table Live =====
+const accountsTable = document.getElementById("accountsTable");
+let accountsData={};
+async function fetchAccounts(){
+  try{
+    const res = await fetch("/account-status");
+    accountsData = await res.json();
+    renderAccounts();
+  }catch(err){ console.log(err); }
+}
+function renderAccounts(){
+  accountsTable.innerHTML="";
+  Object.keys(accountsData).forEach(id=>{
+    const acc = accountsData[id];
+    const tr = document.createElement("tr");
+    tr.id = `row-${id}`;
+    let statusEmoji="🟡";
+    if(acc.status==="active") statusEmoji="🟢";
+    if(acc.status==="floodwait") statusEmoji="🔴";
+    if(acc.status==="error") statusEmoji="🟡";
+    let floodWait="-";
+    if(acc.status==="floodwait" && acc.floodWaitUntil){
+      const remaining=Math.max(0,Math.floor((acc.floodWaitUntil-Date.now())/1000));
+      const min=Math.floor(remaining/60);
+      const sec=remaining%60;
+      floodWait=`${min}m ${sec}s`;
+    }
+    let lastChecked=acc.lastChecked?new Date(acc.lastChecked).toLocaleTimeString():"-";
+    tr.innerHTML=`<td>${id}</td><td>${acc.phone}</td><td>${statusEmoji} ${acc.status}</td><td class="floodwait">${floodWait}</td><td>${lastChecked}</td>`;
+    accountsTable.appendChild(tr);
+  });
+}
+setInterval(()=>{
+  Object.keys(accountsData).forEach(id=>{
+    const acc = accountsData[id];
+    if(acc.status==="floodwait" && acc.floodWaitUntil){
+      const remaining=Math.max(0,Math.floor((acc.floodWaitUntil-Date.now())/1000));
+      const min=Math.floor(remaining/60);
+      const sec=remaining%60;
+      const floodEl = document.querySelector(`#row-${id} .floodwait`);
+      if(floodEl) floodEl.textContent = `${min}m ${sec}s`;
+    }
+  });
+},1000);
+fetchAccounts();
+setInterval(fetchAccounts,10000);
+
+// ===== Members Page =====
+const memberListEl=document.getElementById("memberList");
+const exportCounterEl=document.getElementById("exportCounter");
+const exportProgressEl=document.getElementById("exportProgress");
+const groupInputEl=document.getElementById("groupInput");
+const fetchMembersBtn=document.getElementById("fetchMembersBtn");
+const loadingOverlay=document.getElementById("loadingOverlay");
+let memberList=[];
+
+fetchMembersBtn.onclick=async()=>{
+  const group = groupInputEl.value.trim();
+  if(!group){ alert("Enter group link or username"); return; }
+  loadingOverlay.style.display="flex";
+
+  try{
+    memberListEl.innerHTML="";
+    exportCounterEl.textContent="0 / 0 exported";
+    exportProgressEl.style.width="0%";
+
+    const res = await fetch("/members",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({group})});
+    memberList = await res.json();
+
+    let exported=0;
+    for(const m of memberList){
+      const li=document.createElement("li");
+      li.innerHTML=`<img class="avatar" src="${m.avatar||''}"><span class="username-highlight">${m.username||'-'}</span> <span>${m.user_id}</span>`;
+      memberListEl.appendChild(li);
+      exported++;
+      exportCounterEl.textContent=`${exported} / ${memberList.length} exported`;
+      exportProgressEl.style.width=`${Math.floor((exported/memberList.length)*100)}%`;
+      await new Promise(r=>setTimeout(r,50));
+    }
+
+  }catch(err){ console.log(err); alert("Failed to fetch members"); }
+  finally{ loadingOverlay.style.display="none"; }
+};
+
+document.getElementById("downloadBtn").onclick=()=>{
+  if(memberList.length===0){ alert("No members to download"); return; }
+  const dataStr="data:text/json;charset=utf-8,"+encodeURIComponent(JSON.stringify(memberList,null,2));
+  const a=document.createElement("a");
+  a.href=dataStr;
+  a.download="members.json";
+  a.click();
+};
+
+// ===== Upload Accounts =====
+const phoneInput=document.getElementById("phoneInput");
+const apiIdInput=document.getElementById("apiIdInput");
+const apiHashInput=document.getElementById("apiHashInput");
+const sessionInput=document.getElementById("sessionInput");
+const addAccountBtn=document.getElementById("addAccountBtn");
+const uploadStats=document.getElementById("uploadStats");
+
+addAccountBtn.onclick=async()=>{
+  const phone=phoneInput.value.trim();
+  const api_id=apiIdInput.value.trim();
+  const api_hash=apiHashInput.value.trim();
+  const session=sessionInput.value.trim();
+  if(!phone||!api_id||!api_hash||!session){ alert("All fields required"); return; }
+  const res=await fetch("/add-account",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({phone,api_id,api_hash,session})});
+  const data=await res.json();
+  if(data.success){ uploadStats.textContent=`Account ${phone} added`; phoneInput.value=""; apiIdInput.value=""; apiHashInput.value=""; sessionInput.value=""; fetchAccounts(); }
+  else{ uploadStats.textContent=`Failed: ${data.error||"Unknown"}`; }
+};
+
+document.getElementById("uploadBtn").onclick=async()=>{
+  const file=document.getElementById("file").files[0];
+  if(!file){ alert("Select file first"); return; }
+  const text=await file.text();
+  const res=await fetch("/upload-accounts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({accounts:text})});
+  const data=await res.json();
+  if(data.success){ uploadStats.textContent="File accounts uploaded"; fetchAccounts(); }
+  else{ uploadStats.textContent=`Failed: ${data.error||"Unknown"}`; }
+};
+
+// ===== Download History =====
+document.getElementById("downloadHistoryBtn").onclick=async()=>{
+  const res=await fetch("/history");
+  const data=await res.json();
+  const dataStr="data:text/json;charset=utf-8,"+encodeURIComponent(JSON.stringify(data,null,2));
+  const a=document.createElement("a");
+  a.href=dataStr;
+  a.download="history.json";
+  a.click();
+};
 </script>
 </body>
 </html>
