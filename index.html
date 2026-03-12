@@ -2,55 +2,77 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Telegram Accounts Status</title>
+<title>Telegram Export Tool PRO+++ Mobile Safe</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono&display=swap" rel="stylesheet">
 <style>
-  body { font-family: monospace; background: #121212; color: #eee; padding: 20px; }
-  h1 { text-align: center; margin-bottom: 20px; }
-  table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-  th, td { padding: 10px; border-radius: 5px; text-align: left; }
-  th { background-color: #222; }
-  td.active { background-color: #28a745; }
-  td.floodwait { background-color: #dc3545; }
-  td.error { background-color: #ffc107; color: #000; }
-  button { padding: 8px 16px; cursor: pointer; font-weight: bold; margin-bottom: 10px; }
-  form { margin-bottom: 20px; }
-  input { padding: 5px; margin: 2px; width: 200px; }
+body {font-family:'JetBrains Mono',monospace;background:#121213;color:#fff;margin:0;padding:0;}
+.container{max-width:900px;margin:auto;padding:20px;}
+section{background:#1f2937;border-radius:16px;padding:20px;margin-bottom:20px;box-shadow:0 8px 20px rgba(0,0,0,0.5);}
+.card-title{font-size:20px;font-weight:700;margin-bottom:15px;color:#22c55e;}
+input{width:100%;padding:12px;margin-top:12px;border-radius:12px;border:none;background:#111827;color:#fff;font-size:16px;box-sizing:border-box;}
+button{border:none;padding:10px;border-radius:8px;cursor:pointer;font-size:15px;transition:all .2s ease;box-sizing:border-box;}
+button:active{transform:scale(.96);}
+#uploadBtn,#checkBtn{background:#22c55e;color:#fff;margin-top:10px;}
+.table-responsive{width:100%;overflow-x:auto;margin-top:15px;}
+table{width:100%;border-collapse:collapse;}
+th,td{padding:8px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1);}
+th{background:#374151;color:#fff;}
+td.active{background-color:#28a745;}
+td.floodwait{background-color:#dc2625;}
+td.error{background-color:#ffc107;color:#000;}
+@media(max-width:600px){
+  .container{padding:15px;}
+  input,button{font-size:14px;padding:10px;}
+  table,th,td{font-size:12px;}
+}
 </style>
 </head>
 <body>
-<h1>តេលេក្រាម</h1>
+<div class="container">
 
-<form id="uploadForm">
-  <h3>Add Telegram Account</h3>
-  <input type="text" name="phone" placeholder="Phone (+855...)" required>
-  <input type="number" name="api_id" placeholder="API_ID" required>
-  <input type="text" name="api_hash" placeholder="API_HASH" required>
-  <input type="text" name="session" placeholder="Session String" required>
-  <button type="submit">Add Account</button>
-</form>
+  <!-- Upload Account Form -->
+  <section>
+    <div class="card-title">Add Telegram Account</div>
+    <form id="uploadForm">
+      <input type="text" name="phone" placeholder="Phone (+855...)" required>
+      <input type="number" name="api_id" placeholder="API_ID" required>
+      <input type="text" name="api_hash" placeholder="API_HASH" required>
+      <input type="text" name="session" placeholder="Session String" required>
+      <button type="submit" id="uploadBtn">Add Account</button>
+    </form>
+  </section>
 
-<button id="checkBtn">Check All Accounts</button>
+  <!-- Accounts Status Table -->
+  <section>
+    <div class="card-title">Accounts Status</div>
+    <button id="checkBtn">Check All Accounts</button>
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr>
+            <th>Account ID</th>
+            <th>Phone</th>
+            <th>Status</th>
+            <th>Last Checked</th>
+            <th>Error</th>
+          </tr>
+        </thead>
+        <tbody id="accountTable">
+          <tr><td colspan="5">Loading accounts...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
 
-<table>
-  <thead>
-    <tr>
-      <th>Account ID</th>
-      <th>Phone</th>
-      <th>Status</th>
-      <th>Last Checked</th>
-      <th>Error</th>
-    </tr>
-  </thead>
-  <tbody id="accountTable">
-    <tr><td colspan="5">Loading accounts...</td></tr>
-  </tbody>
-</table>
+</div>
 
 <script>
 const accountTable = document.getElementById('accountTable');
 const checkBtn = document.getElementById('checkBtn');
 const uploadForm = document.getElementById('uploadForm');
 
+// Fetch live status
 async function fetchStatus() {
   try {
     const res = await fetch('/account-status');
@@ -79,6 +101,7 @@ async function fetchStatus() {
   }
 }
 
+// Check All Accounts button
 checkBtn.onclick = async () => {
   accountTable.innerHTML = '<tr><td colspan="5">Checking accounts...</td></tr>';
   await fetch('/check-accounts');
@@ -89,7 +112,7 @@ checkBtn.onclick = async () => {
 setInterval(fetchStatus, 15000);
 fetchStatus();
 
-// Upload form
+// Upload form submit
 uploadForm.onsubmit = async (e) => {
   e.preventDefault();
   const formData = new FormData(uploadForm);
@@ -101,7 +124,7 @@ uploadForm.onsubmit = async (e) => {
   };
   const res = await fetch('/add-account', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {'Content-Type':'application/json'},
     body: JSON.stringify(data)
   });
   const result = await res.json();
@@ -116,4 +139,3 @@ uploadForm.onsubmit = async (e) => {
 </script>
 </body>
 </html>
-
