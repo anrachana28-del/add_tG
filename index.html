@@ -2,150 +2,403 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Telegram Export Tool PRO+++ Mobile Safe</title>
+<title>Telegram Account Monitor PRO</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono&display=swap" rel="stylesheet">
+
 <style>
-body {font-family:'JetBrains Mono',monospace;background:#121213;color:#fff;margin:0;padding:0;}
-.container{max-width:900px;margin:auto;padding:20px;}
-section{background:#1f2937;border-radius:16px;padding:20px;margin-bottom:20px;box-shadow:0 8px 20px rgba(0,0,0,0.5);}
-.card-title{font-size:20px;font-weight:700;margin-bottom:15px;color:#22c55e;}
-input{width:100%;padding:12px;margin-top:12px;border-radius:12px;border:none;background:#111827;color:#fff;font-size:16px;box-sizing:border-box;}
-button{border:none;padding:10px;border-radius:8px;cursor:pointer;font-size:15px;transition:all .2s ease;box-sizing:border-box;}
-button:active{transform:scale(.96);}
-#uploadBtn,#checkBtn{background:#22c55e;color:#fff;margin-top:10px;}
-.deleteBtn{background:#dc2626;color:#fff;border-radius:6px;padding:4px 8px;cursor:pointer;transition:all .2s ease;}
-.deleteBtn:hover{opacity:0.8;transform:scale(0.95);}
-.table-responsive{width:100%;overflow-x:auto;margin-top:15px;}
-table{width:100%;border-collapse:collapse;}
-th,td{padding:8px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1);}
-th{background:#374151;color:#fff;}
-td.active{background-color:#28a745;}
-td.floodwait{background-color:#dc2625;}
-td.error{background-color:#ffc107;color:#000;}
-@media(max-width:600px){
-  .container{padding:15px;}
-  input,button{font-size:14px;padding:10px;}
-  table,th,td{font-size:12px;}
+
+body{
+font-family:'JetBrains Mono',monospace;
+background:#121213;
+color:white;
+margin:0;
+padding:0;
 }
+
+.container{
+max-width:900px;
+margin:auto;
+padding:20px;
+}
+
+section{
+background:#1f2937;
+border-radius:16px;
+padding:20px;
+margin-bottom:20px;
+box-shadow:0 8px 20px rgba(0,0,0,0.5);
+}
+
+.card-title{
+font-size:20px;
+font-weight:700;
+margin-bottom:15px;
+color:#22c55e;
+}
+
+input{
+width:100%;
+padding:12px;
+margin-top:10px;
+border-radius:10px;
+border:none;
+background:#111827;
+color:white;
+}
+
+button{
+border:none;
+padding:10px;
+border-radius:8px;
+cursor:pointer;
+margin-top:10px;
+}
+
+#uploadBtn{
+background:#22c55e;
+color:white;
+width:100%;
+}
+
+#checkBtn{
+background:#0ea5e9;
+color:white;
+width:100%;
+margin-bottom:10px;
+}
+
+.deleteBtn{
+background:#dc2626;
+color:white;
+padding:6px 10px;
+}
+
+.table-responsive{
+overflow-x:auto;
+}
+
+table{
+width:100%;
+border-collapse:collapse;
+}
+
+th,td{
+padding:8px;
+text-align:left;
+border-bottom:1px solid rgba(255,255,255,0.1);
+}
+
+th{
+background:#374151;
+}
+
+td.active{
+background:#16a34a;
+}
+
+td.floodwait{
+background:#dc2626;
+}
+
+td.error{
+background:#facc15;
+color:black;
+}
+
+td.pending{
+background:#6b7280;
+}
+
+.flood-timer{
+font-weight:bold;
+color:#f87171;
+}
+
+@media(max-width:600px){
+
+.container{
+padding:12px;
+}
+
+table{
+font-size:12px;
+}
+
+}
+
 </style>
 </head>
+
 <body>
+
 <div class="container">
 
 <section>
-  <div class="card-title">Add Telegram Account</div>
-  <form id="uploadForm">
-    <input type="text" name="phone" placeholder="Phone (+855...)" required>
-    <input type="number" name="api_id" placeholder="API_ID" required>
-    <input type="text" name="api_hash" placeholder="API_HASH" required>
-    <input type="text" name="session" placeholder="Session String" required>
-    <button type="submit" id="uploadBtn">Add Account</button>
-  </form>
+
+<div class="card-title">Add Telegram Account</div>
+
+<form id="uploadForm">
+
+<input type="text" name="phone" placeholder="Phone (+855...)" required>
+
+<input type="number" name="api_id" placeholder="API ID" required>
+
+<input type="text" name="api_hash" placeholder="API HASH" required>
+
+<input type="text" name="session" placeholder="Session String" required>
+
+<button type="submit" id="uploadBtn">Add Account</button>
+
+</form>
+
 </section>
 
+
 <section>
-  <div class="card-title">Accounts Status</div>
-  <button id="checkBtn">Check All Accounts</button>
-  <div class="table-responsive">
-    <table>
-      <thead>
-        <tr>
-          <th>Account ID</th>
-          <th>Phone</th>
-          <th>Status</th>
-          <th>Last Checked</th>
-          <th>Error</th>
-          <th>Action</th>
-        </tr>
-      </thead>
-      <tbody id="accountTable">
-        <tr><td colspan="6">Loading accounts...</td></tr>
-      </tbody>
-    </table>
-  </div>
+
+<div class="card-title">Accounts Status</div>
+
+<button id="checkBtn">Check All Accounts</button>
+
+<div class="table-responsive">
+
+<table>
+
+<thead>
+
+<tr>
+
+<th>ID</th>
+<th>Phone</th>
+<th>Status</th>
+<th>FloodWait</th>
+<th>Last Checked</th>
+<th>Error</th>
+<th>Action</th>
+
+</tr>
+
+</thead>
+
+<tbody id="accountTable">
+
+<tr>
+<td colspan="7">Loading...</td>
+</tr>
+
+</tbody>
+
+</table>
+
+</div>
+
 </section>
 
 </div>
 
-<script>
-const accountTable = document.getElementById('accountTable');
-const checkBtn = document.getElementById('checkBtn');
-const uploadForm = document.getElementById('uploadForm');
 
-async function fetchStatus() {
-  try{
-    const res = await fetch('/account-status');
-    const data = await res.json();
-    accountTable.innerHTML = '';
-    if(!data || Object.keys(data).length===0){
-      accountTable.innerHTML = '<tr><td colspan="6">No accounts found</td></tr>';
-      return;
-    }
-    for(const id in data){
-      const acc = data[id];
-      const lastChecked = acc.lastChecked ? new Date(acc.lastChecked).toLocaleString() : '-';
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td>${id}</td>
-        <td>${acc.phone || '-'}</td>
-        <td class="${acc.status || ''}">${acc.status || 'unknown'}</td>
-        <td>${lastChecked}</td>
-        <td>${acc.error || ''}</td>
-        <td><button class="deleteBtn" data-id="${id}">Delete</button></td>
-      `;
-      accountTable.appendChild(tr);
-    }
-  } catch(err){
-    accountTable.innerHTML = '<tr><td colspan="6">Error fetching status</td></tr>';
-  }
+<script>
+
+const accountTable=document.getElementById("accountTable");
+const uploadForm=document.getElementById("uploadForm");
+const checkBtn=document.getElementById("checkBtn");
+
+
+function formatTime(sec){
+
+const m=Math.floor(sec/60);
+const s=sec%60;
+
+if(m>0){
+return m+"m "+s+"s";
 }
 
-checkBtn.onclick = async () => {
-  accountTable.innerHTML = '<tr><td colspan="6">Checking accounts...</td></tr>';
-  await fetch('/check-accounts');
-  await fetchStatus();
+return s+"s";
+
+}
+
+
+// ===== Fetch Status =====
+async function fetchStatus(){
+
+try{
+
+const res=await fetch('/account-status');
+
+const data=await res.json();
+
+accountTable.innerHTML="";
+
+if(!data || Object.keys(data).length===0){
+
+accountTable.innerHTML=`<tr><td colspan="7">No Accounts</td></tr>`;
+
+return;
+
+}
+
+for(const id in data){
+
+const acc=data[id];
+
+const lastChecked=acc.lastChecked
+?new Date(acc.lastChecked).toLocaleString()
+:"-";
+
+const flood=acc.floodWait
+?`<span class="flood-timer" data-time="${acc.floodWait}">${formatTime(acc.floodWait)}</span>`
+:"-";
+
+const tr=document.createElement("tr");
+
+tr.innerHTML=`
+
+<td>${id}</td>
+
+<td>${acc.phone||"-"}</td>
+
+<td class="${acc.status||""}">${acc.status||"unknown"}</td>
+
+<td>${flood}</td>
+
+<td>${lastChecked}</td>
+
+<td>${acc.error||""}</td>
+
+<td>
+<button class="deleteBtn" data-id="${id}">Delete</button>
+</td>
+
+`;
+
+accountTable.appendChild(tr);
+
+}
+
+}catch(err){
+
+accountTable.innerHTML=`<tr><td colspan="7">Error loading</td></tr>`;
+
+}
+
+}
+
+
+// ===== Upload Account =====
+uploadForm.onsubmit=async(e)=>{
+
+e.preventDefault();
+
+const formData=new FormData(uploadForm);
+
+const data={
+
+phone:formData.get("phone"),
+api_id:formData.get("api_id"),
+api_hash:formData.get("api_hash"),
+session:formData.get("session")
+
 };
 
-setInterval(fetchStatus,15000);
+const res=await fetch('/add-account',{
+
+method:'POST',
+headers:{'Content-Type':'application/json'},
+body:JSON.stringify(data)
+
+});
+
+const result=await res.json();
+
+if(result.success){
+
+alert("Account Added");
+
+uploadForm.reset();
+
 fetchStatus();
 
-uploadForm.onsubmit = async (e)=>{
-  e.preventDefault();
-  const formData = new FormData(uploadForm);
-  const data = {
-    phone: formData.get('phone'),
-    api_id: formData.get('api_id'),
-    api_hash: formData.get('api_hash'),
-    session: formData.get('session')
-  };
-  const res = await fetch('/add-account',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(data)
-  });
-  const result = await res.json();
-  if(result.success){
-    alert(`Account ${result.id} added!`);
-    uploadForm.reset();
-    fetchStatus();
-  } else alert(result.error||'Error adding account');
+}else{
+
+alert(result.error||"Error");
+
+}
+
 };
 
-document.addEventListener('click', async (e)=>{
-  if(e.target && e.target.classList.contains('deleteBtn')){
-    const id = e.target.dataset.id;
-    if(!confirm(`Delete account ${id}?`)) return;
-    try{
-      const res = await fetch(`/delete-account/${id}`,{ method:'DELETE' });
-      const result = await res.json();
-      if(result.success){
-        alert(`Account ${id} deleted!`);
-        fetchStatus();
-      } else alert(result.error||'Error deleting account');
-    } catch(err){ alert('Delete failed'); console.error(err);}
-  }
+
+// ===== Delete Account =====
+document.addEventListener("click",async(e)=>{
+
+if(e.target.classList.contains("deleteBtn")){
+
+const id=e.target.dataset.id;
+
+if(!confirm("Delete "+id+" ?")) return;
+
+const res=await fetch(`/delete-account/${id}`,{
+method:"DELETE"
 });
+
+const result=await res.json();
+
+if(result.success){
+
+fetchStatus();
+
+}else{
+
+alert(result.error);
+
+}
+
+}
+
+});
+
+
+// ===== Manual Check =====
+checkBtn.onclick=async()=>{
+
+accountTable.innerHTML=`<tr><td colspan="7">Checking...</td></tr>`;
+
+await fetch('/check-accounts');
+
+fetchStatus();
+
+};
+
+
+// ===== Auto Refresh =====
+setInterval(fetchStatus,15000);
+
+fetchStatus();
+
+
+// ===== FloodWait Countdown =====
+setInterval(()=>{
+
+document.querySelectorAll(".flood-timer").forEach(el=>{
+
+let sec=parseInt(el.dataset.time);
+
+if(sec>0){
+
+sec--;
+
+el.dataset.time=sec;
+
+el.innerText=formatTime(sec);
+
+}
+
+});
+
+},1000);
+
 </script>
+
 </body>
 </html>
