@@ -14,6 +14,8 @@ input{width:100%;padding:12px;margin-top:12px;border-radius:12px;border:none;bac
 button{border:none;padding:10px;border-radius:8px;cursor:pointer;font-size:15px;transition:all .2s ease;box-sizing:border-box;}
 button:active{transform:scale(.96);}
 #uploadBtn,#checkBtn{background:#22c55e;color:#fff;margin-top:10px;}
+.deleteBtn{background:#dc2626;color:#fff;border-radius:6px;padding:4px 8px;cursor:pointer;transition:all .2s ease;}
+.deleteBtn:hover{opacity:0.8;transform:scale(0.95);}
 .table-responsive{width:100%;overflow-x:auto;margin-top:15px;}
 table{width:100%;border-collapse:collapse;}
 th,td{padding:8px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1);}
@@ -31,39 +33,38 @@ td.error{background-color:#ffc107;color:#000;}
 <body>
 <div class="container">
 
-  <!-- Upload Account Form -->
-  <section>
-    <div class="card-title">Add Telegram Account</div>
-    <form id="uploadForm">
-      <input type="text" name="phone" placeholder="Phone (+855...)" required>
-      <input type="number" name="api_id" placeholder="API_ID" required>
-      <input type="text" name="api_hash" placeholder="API_HASH" required>
-      <input type="text" name="session" placeholder="Session String" required>
-      <button type="submit" id="uploadBtn">Add Account</button>
-    </form>
-  </section>
+<section>
+  <div class="card-title">Add Telegram Account</div>
+  <form id="uploadForm">
+    <input type="text" name="phone" placeholder="Phone (+855...)" required>
+    <input type="number" name="api_id" placeholder="API_ID" required>
+    <input type="text" name="api_hash" placeholder="API_HASH" required>
+    <input type="text" name="session" placeholder="Session String" required>
+    <button type="submit" id="uploadBtn">Add Account</button>
+  </form>
+</section>
 
-  <!-- Accounts Status Table -->
-  <section>
-    <div class="card-title">Accounts Status</div>
-    <button id="checkBtn">Check All Accounts</button>
-    <div class="table-responsive">
-      <table>
-        <thead>
-          <tr>
-            <th>Account ID</th>
-            <th>Phone</th>
-            <th>Status</th>
-            <th>Last Checked</th>
-            <th>Error</th>
-          </tr>
-        </thead>
-        <tbody id="accountTable">
-          <tr><td colspan="5">Loading accounts...</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </section>
+<section>
+  <div class="card-title">Accounts Status</div>
+  <button id="checkBtn">Check All Accounts</button>
+  <div class="table-responsive">
+    <table>
+      <thead>
+        <tr>
+          <th>Account ID</th>
+          <th>Phone</th>
+          <th>Status</th>
+          <th>Last Checked</th>
+          <th>Error</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody id="accountTable">
+        <tr><td colspan="6">Loading accounts...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
 
 </div>
 
@@ -72,14 +73,13 @@ const accountTable = document.getElementById('accountTable');
 const checkBtn = document.getElementById('checkBtn');
 const uploadForm = document.getElementById('uploadForm');
 
-// Fetch live status
 async function fetchStatus() {
-  try {
+  try{
     const res = await fetch('/account-status');
     const data = await res.json();
     accountTable.innerHTML = '';
-    if(!data || Object.keys(data).length === 0){
-      accountTable.innerHTML = '<tr><td colspan="5">No accounts found</td></tr>';
+    if(!data || Object.keys(data).length===0){
+      accountTable.innerHTML = '<tr><td colspan="6">No accounts found</td></tr>';
       return;
     }
     for(const id in data){
@@ -92,28 +92,25 @@ async function fetchStatus() {
         <td class="${acc.status || ''}">${acc.status || 'unknown'}</td>
         <td>${lastChecked}</td>
         <td>${acc.error || ''}</td>
+        <td><button class="deleteBtn" data-id="${id}">Delete</button></td>
       `;
       accountTable.appendChild(tr);
     }
   } catch(err){
-    accountTable.innerHTML = '<tr><td colspan="5">Error fetching status</td></tr>';
-    console.error(err);
+    accountTable.innerHTML = '<tr><td colspan="6">Error fetching status</td></tr>';
   }
 }
 
-// Check All Accounts button
 checkBtn.onclick = async () => {
-  accountTable.innerHTML = '<tr><td colspan="5">Checking accounts...</td></tr>';
+  accountTable.innerHTML = '<tr><td colspan="6">Checking accounts...</td></tr>';
   await fetch('/check-accounts');
   await fetchStatus();
 };
 
-// Auto refresh every 15s
-setInterval(fetchStatus, 15000);
+setInterval(fetchStatus,15000);
 fetchStatus();
 
-// Upload form submit
-uploadForm.onsubmit = async (e) => {
+uploadForm.onsubmit = async (e)=>{
   e.preventDefault();
   const formData = new FormData(uploadForm);
   const data = {
@@ -122,20 +119,33 @@ uploadForm.onsubmit = async (e) => {
     api_hash: formData.get('api_hash'),
     session: formData.get('session')
   };
-  const res = await fetch('/add-account', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify(data)
+  const res = await fetch('/add-account',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(data)
   });
   const result = await res.json();
   if(result.success){
     alert(`Account ${result.id} added!`);
     uploadForm.reset();
     fetchStatus();
-  } else {
-    alert(result.error || 'Error adding account');
-  }
+  } else alert(result.error||'Error adding account');
 };
+
+document.addEventListener('click', async (e)=>{
+  if(e.target && e.target.classList.contains('deleteBtn')){
+    const id = e.target.dataset.id;
+    if(!confirm(`Delete account ${id}?`)) return;
+    try{
+      const res = await fetch(`/delete-account/${id}`,{ method:'DELETE' });
+      const result = await res.json();
+      if(result.success){
+        alert(`Account ${id} deleted!`);
+        fetchStatus();
+      } else alert(result.error||'Error deleting account');
+    } catch(err){ alert('Delete failed'); console.error(err);}
+  }
+});
 </script>
 </body>
 </html>
