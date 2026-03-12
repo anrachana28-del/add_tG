@@ -44,8 +44,6 @@ async function checkTGAccount(account){
     );
     await client.start({});
     await client.getMe();
-
-    // Update Firebase
     await update(ref(db, `accounts/${account.id}`), {
       status: "active",
       phone: account.phone,
@@ -53,7 +51,6 @@ async function checkTGAccount(account){
       error: "",
       floodWaitUntil: null
     });
-
     await client.disconnect();
     return { id: account.id, status: "active" };
   }catch(err){
@@ -131,8 +128,7 @@ app.post('/members', async (req,res)=>{
   try{
     const { group } = req.body;
     if(!group) return res.status(400).json({error:"Group required"});
-    // Use first account
-    const acc = accounts[0];
+    const acc = accounts[0]; // use first account
     const client = new TelegramClient(new StringSession(acc.session),acc.api_id,acc.api_hash,{connectionRetries:5});
     await client.start({});
     const entity = await client.getEntity(group);
@@ -147,13 +143,56 @@ app.post('/members', async (req,res)=>{
   }catch(err){ res.status(500).json({error:err.message}); }
 });
 
+// ===== Add Member Auto-Rotation 20s =====
+let accountIndex = 0;
+app.post('/add-member', async (req,res)=>{
+  try{
+    const { username, user_id, targetGroup } = req.body;
+    if(!targetGroup || (!username && !user_id)) return res.status(400).json({error:"Missing data"});
+    
+    // Rotate account
+    const acc = accounts[accountIndex % accounts.length];
+    accountIndex++;
+    
+    const client = new TelegramClient(new StringSession(acc.session), acc.api_id, acc.api_hash, {connectionRetries:5});
+    await client.start({});
+    
+    try{
+      let entity = await client.getEntity(targetGroup);
+      if(username){
+        const userEntity = await client.getEntity(username);
+        await client.addChatUser(entity, {user: userEntity, fwd_limit:0});
+      } else {
+        const userEntity = await client.getEntity(user_id);
+        await client.addChatUser(entity, {user: userEntity, fwd_limit:0});
+      }
+      
+      // Log history in Firebase
+      const histRef = push(ref(db,'history'));
+      await update(histRef,{
+        username, user_id, status:"success", accountUsed:acc.id, timestamp:Date.now()
+      });
+      await client.disconnect();
+      res.json({status:"success", accountUsed:acc.id});
+    }catch(errAdd){
+      const histRef = push(ref(db,'history'));
+      await update(histRef,{
+        username, user_id, status:"failed", accountUsed:acc.id, error:errAdd.message, timestamp:Date.now()
+      });
+      await client.disconnect();
+      res.json({status:"failed", accountUsed:acc.id, error:errAdd.message});
+    }
+    
+  }catch(err){ res.status(500).json({error:err.message}); }
+});
+
 // Download history
 app.get('/history', async (req,res)=>{
   const snapshot = await get(ref(db,'history'));
   res.json(snapshot.val() || []);
 });
 
-// Serve static index.html
+// Serve frontend
 const __filename=fileURLToPath(import.meta.url);
 const __dirname=path.dirname(__filename);
 app.get('/',(req,res)=> res.sendFile(path.join(__dirname,'index.html')));
