@@ -16,8 +16,8 @@ const firebaseConfig = {
   authDomain: process.env.FIREBASE_AUTH_DOMAIN,
   databaseURL: process.env.FIREBASE_DB_URL
 };
-const appFirebase = initializeApp(firebaseConfig);
-const db = getDatabase(appFirebase);
+initializeApp(firebaseConfig);
+const db = getDatabase();
 
 // ===== Load Telegram Accounts =====
 const accounts = [];
@@ -33,7 +33,7 @@ while(process.env[`TG_ACCOUNT_${i}_PHONE`]){
   i++;
 }
 
-// ===== Check Account =====
+// ===== Check Account Function =====
 async function checkTGAccount(account){
   try {
     const client = new TelegramClient(
@@ -42,7 +42,7 @@ async function checkTGAccount(account){
       account.api_hash,
       { connectionRetries: 5 }
     );
-    await client.start({}); // Session already exists, no input needed
+    await client.start({});
     await client.getMe();
 
     await update(ref(db, `accounts/${account.id}`), {
@@ -68,7 +68,7 @@ async function checkTGAccount(account){
 }
 
 // ===== Auto Collection =====
-const CHECK_INTERVAL = 60000; // every 60 seconds
+const CHECK_INTERVAL = 60000; // 60 seconds
 async function autoCollect() {
   for(const acc of accounts){
     try{
@@ -80,7 +80,7 @@ async function autoCollect() {
   }
 }
 setInterval(autoCollect, CHECK_INTERVAL);
-autoCollect(); // Run once on server start
+autoCollect();
 
 // ===== API =====
 app.get('/check-accounts', async (req, res) => {
@@ -97,12 +97,29 @@ app.get('/account-status', async (req, res) => {
   res.json(snapshot.val() || {});
 });
 
+// ===== Add Account Endpoint =====
+app.post('/add-account', async (req, res) => {
+  const { phone, api_id, api_hash, session } = req.body;
+  if(!phone || !api_id || !api_hash || !session){
+    return res.status(400).json({ error: "All fields required" });
+  }
+
+  const newId = `TG_ACCOUNT_${accounts.length + 1}`;
+  const newAccount = { phone, api_id: Number(api_id), api_hash, session, id: newId };
+  accounts.push(newAccount);
+
+  await update(ref(db, `accounts/${newId}`), {
+    phone, api_id: Number(api_id), api_hash, session,
+    status: "pending", lastChecked: null, error: ""
+  });
+
+  res.json({ success: true, id: newId });
+});
+
 // ===== Serve index.html =====
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
-});
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
 // ===== Start Server =====
 const PORT = process.env.PORT || 3000;
