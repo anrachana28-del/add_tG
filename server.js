@@ -33,9 +33,9 @@ while(process.env[`TG_ACCOUNT_${i}_PHONE`]){
   i++;
 }
 
-// ===== Check Account Function =====
+// ===== Check Account =====
 async function checkTGAccount(account){
-  try {
+  try{
     const client = new TelegramClient(
       new StringSession(account.session),
       account.api_id,
@@ -44,22 +44,19 @@ async function checkTGAccount(account){
     );
     await client.start({});
     await client.getMe();
-
     await update(ref(db, `accounts/${account.id}`), {
       status: "active",
       phone: account.phone,
       lastChecked: Date.now(),
       error: ""
     });
-
     await client.disconnect();
     return { id: account.id, status: "active" };
   } catch(err){
     let status = "error";
     if(err.message.includes("FLOOD_WAIT")) status = "floodwait";
     await update(ref(db, `accounts/${account.id}`), {
-      status,
-      phone: account.phone,
+      status, phone: account.phone,
       lastChecked: Date.now(),
       error: err.message
     });
@@ -67,23 +64,20 @@ async function checkTGAccount(account){
   }
 }
 
-// ===== Auto Collection =====
-const CHECK_INTERVAL = 60000; // 60 seconds
-async function autoCollect() {
+// ===== Auto-collection every 60s =====
+setInterval(async () => {
   for(const acc of accounts){
-    try{
-      await checkTGAccount(acc);
-      console.log(`Checked ${acc.id}`);
-    } catch(err){
-      console.log(`Error checking ${acc.id}: ${err.message}`);
-    }
+    await checkTGAccount(acc).catch(e=>console.log(e));
   }
-}
-setInterval(autoCollect, CHECK_INTERVAL);
-autoCollect();
+}, 60000);
 
 // ===== API =====
-app.get('/check-accounts', async (req, res) => {
+app.get('/account-status', async (req,res)=>{
+  const snapshot = await get(ref(db, 'accounts'));
+  res.json(snapshot.val() || {});
+});
+
+app.get('/check-accounts', async (req,res)=>{
   const results = [];
   for(const acc of accounts){
     const result = await checkTGAccount(acc);
@@ -92,35 +86,35 @@ app.get('/check-accounts', async (req, res) => {
   res.json(results);
 });
 
-app.get('/account-status', async (req, res) => {
-  const snapshot = await get(ref(db, 'accounts'));
-  res.json(snapshot.val() || {});
+// ===== Add Account =====
+app.post('/add-account', async (req,res)=>{
+  const { phone, api_id, api_hash, session } = req.body;
+  if(!phone||!api_id||!api_hash||!session) return res.status(400).json({ error:"All fields required" });
+  const newId = `TG_ACCOUNT_${accounts.length+1}`;
+  const newAccount = { phone, api_id:Number(api_id), api_hash, session, id:newId };
+  accounts.push(newAccount);
+  await update(ref(db, `accounts/${newId}`), {
+    phone, api_id:Number(api_id), api_hash, session,
+    status:"pending", lastChecked:null, error:""
+  });
+  res.json({ success:true, id:newId });
 });
 
-// ===== Add Account Endpoint =====
-app.post('/add-account', async (req, res) => {
-  const { phone, api_id, api_hash, session } = req.body;
-  if(!phone || !api_id || !api_hash || !session){
-    return res.status(400).json({ error: "All fields required" });
-  }
-
-  const newId = `TG_ACCOUNT_${accounts.length + 1}`;
-  const newAccount = { phone, api_id: Number(api_id), api_hash, session, id: newId };
-  accounts.push(newAccount);
-
-  await update(ref(db, `accounts/${newId}`), {
-    phone, api_id: Number(api_id), api_hash, session,
-    status: "pending", lastChecked: null, error: ""
-  });
-
-  res.json({ success: true, id: newId });
+// ===== Delete Account =====
+app.delete('/delete-account/:id', async (req,res)=>{
+  const { id } = req.params;
+  if(!id) return res.status(400).json({ error:"Account ID required" });
+  const index = accounts.findIndex(a=>a.id===id);
+  if(index!==-1) accounts.splice(index,1);
+  await update(ref(db, `accounts/${id}`), null);
+  res.json({ success:true, id });
 });
 
 // ===== Serve index.html =====
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+app.get('/', (req,res)=>res.sendFile(path.join(__dirname,'index.html')));
 
 // ===== Start Server =====
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, ()=>console.log(`Server running on port ${PORT}`));
