@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, update, get, push } from 'firebase/database';
-import { TelegramClient, Api } from 'telegram';
+import { TelegramClient } from 'telegram';
 import { StringSession } from 'telegram/sessions/index.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -28,8 +28,7 @@ while(process.env[`TG_ACCOUNT_${i}_PHONE`]){
     api_id: Number(process.env[`TG_ACCOUNT_${i}_API_ID`]),
     api_hash: process.env[`TG_ACCOUNT_${i}_API_HASH`],
     session: process.env[`TG_ACCOUNT_${i}_SESSION`],
-    id: `TG_ACCOUNT_${i}`,
-    floodWaitUntil: null
+    id: `TG_ACCOUNT_${i}`
   });
   i++;
 }
@@ -97,7 +96,7 @@ app.post('/add-account', async (req,res)=>{
   const { phone, api_id, api_hash, session } = req.body;
   if(!phone || !api_id || !api_hash || !session) return res.status(400).json({error:"All fields required"});
   const newId = `TG_ACCOUNT_${accounts.length+1}`;
-  accounts.push({phone, api_id:Number(api_id), api_hash, session, id:newId, floodWaitUntil:null});
+  accounts.push({phone, api_id:Number(api_id), api_hash, session, id:newId});
   await update(ref(db, `accounts/${newId}`), {
     phone, api_id:Number(api_id), api_hash, session,
     status:"pending", lastChecked:null, error:"", floodWaitUntil:null
@@ -114,7 +113,7 @@ app.post('/upload-accounts', async (req,res)=>{
       const [phone, api_id, api_hash, session] = line.split(",");
       if(!phone||!api_id||!api_hash||!session) continue;
       const newId = `TG_ACCOUNT_${accounts.length+1}`;
-      accounts.push({phone, api_id:Number(api_id), api_hash, session, id:newId, floodWaitUntil:null});
+      accounts.push({phone, api_id:Number(api_id), api_hash, session, id:newId});
       await update(ref(db, `accounts/${newId}`),{
         phone, api_id:Number(api_id), api_hash, session,
         status:"pending", lastChecked:null, error:"", floodWaitUntil:null
@@ -144,63 +143,37 @@ app.post('/members', async (req,res)=>{
   }catch(err){ res.status(500).json({error:err.message}); }
 });
 
-// ===== Add Member Auto-Rotation + FloodWait Handling (Full Index Logic) =====
+// ===== Add Member Auto-Rotation 20s =====
 let accountIndex = 0;
-
 app.post('/add-member', async (req,res)=>{
   try{
     const { username, user_id, targetGroup } = req.body;
     if(!targetGroup || (!username && !user_id)) return res.status(400).json({error:"Missing data"});
-
-    // Rotate account safely with FloodWait skip
-    let acc;
-    let tried = 0;
-    const totalAccounts = accounts.length;
-
-    while(tried < totalAccounts){
-      acc = accounts[accountIndex % totalAccounts];
-      accountIndex++; // increment for next rotation
-      tried++;
-
-      // Skip if in FloodWait
-      if(!acc.floodWaitUntil || acc.floodWaitUntil < Date.now()){
-        break;
-      }
-    }
-
-    if(tried >= totalAccounts){
-      return res.status(429).json({error:"All accounts are in FloodWait, try later"});
-    }
-
+    
+    // Rotate account
+    const acc = accounts[accountIndex % accounts.length];
+    accountIndex++;
+    
     const client = new TelegramClient(new StringSession(acc.session), acc.api_id, acc.api_hash, {connectionRetries:5});
     await client.start({});
-
+    
     try{
-      const targetEntity = await client.getEntity(targetGroup);
-      const userEntity = await client.getEntity(username || user_id);
-
-      // Detect type and add user
-      if(targetEntity.className === 'Channel' || targetEntity.className === 'Chat') {
-        await client.invoke(new Api.channels.InviteToChannel({
-          channel: targetEntity,
-          users: [userEntity]
-        }));
+      let entity = await client.getEntity(targetGroup);
+      if(username){
+        const userEntity = await client.getEntity(username);
+        await client.addChatUser(entity, {user: userEntity, fwd_limit:0});
       } else {
-        await client.invoke(new Api.messages.AddChatUser({
-          chatId: targetEntity.id,
-          userId: userEntity,
-          fwdLimit: 0
-        }));
+        const userEntity = await client.getEntity(user_id);
+        await client.addChatUser(entity, {user: userEntity, fwd_limit:0});
       }
-
-      // Log success
+      
+      // Log history in Firebase
       const histRef = push(ref(db,'history'));
       await update(histRef,{
         username, user_id, status:"success", accountUsed:acc.id, timestamp:Date.now()
       });
       await client.disconnect();
       res.json({status:"success", accountUsed:acc.id});
-
     }catch(errAdd){
       const histRef = push(ref(db,'history'));
       await update(histRef,{
@@ -209,7 +182,7 @@ app.post('/add-member', async (req,res)=>{
       await client.disconnect();
       res.json({status:"failed", accountUsed:acc.id, error:errAdd.message});
     }
-
+    
   }catch(err){ res.status(500).json({error:err.message}); }
 });
 
