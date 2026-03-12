@@ -144,24 +144,32 @@ app.post('/members', async (req,res)=>{
   }catch(err){ res.status(500).json({error:err.message}); }
 });
 
-// ===== Add Member Auto-Rotation + FloodWait Handling =====
+// ===== Add Member Auto-Rotation + FloodWait Handling (Full Index Logic) =====
 let accountIndex = 0;
+
 app.post('/add-member', async (req,res)=>{
   try{
     const { username, user_id, targetGroup } = req.body;
     if(!targetGroup || (!username && !user_id)) return res.status(400).json({error:"Missing data"});
 
-    // Rotate account and skip FloodWait
+    // Rotate account safely with FloodWait skip
     let acc;
     let tried = 0;
-    do {
-      acc = accounts[accountIndex % accounts.length];
-      accountIndex++;
-      tried++;
-    } while(acc.floodWaitUntil && acc.floodWaitUntil > Date.now() && tried < accounts.length);
+    const totalAccounts = accounts.length;
 
-    if(tried >= accounts.length){
-      return res.status(429).json({error:"All accounts in FloodWait"});
+    while(tried < totalAccounts){
+      acc = accounts[accountIndex % totalAccounts];
+      accountIndex++; // increment for next rotation
+      tried++;
+
+      // Skip if in FloodWait
+      if(!acc.floodWaitUntil || acc.floodWaitUntil < Date.now()){
+        break;
+      }
+    }
+
+    if(tried >= totalAccounts){
+      return res.status(429).json({error:"All accounts are in FloodWait, try later"});
     }
 
     const client = new TelegramClient(new StringSession(acc.session), acc.api_id, acc.api_hash, {connectionRetries:5});
@@ -178,7 +186,6 @@ app.post('/add-member', async (req,res)=>{
           users: [userEntity]
         }));
       } else {
-        // fallback for small chat
         await client.invoke(new Api.messages.AddChatUser({
           chatId: targetEntity.id,
           userId: userEntity,
