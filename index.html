@@ -13,10 +13,22 @@
   td.floodwait { background-color: #dc3545; }
   td.error { background-color: #ffc107; color: #000; }
   button { padding: 8px 16px; cursor: pointer; font-weight: bold; margin-bottom: 10px; }
+  form { margin-bottom: 20px; }
+  input { padding: 5px; margin: 2px; width: 200px; }
 </style>
 </head>
 <body>
 <h1>Telegram Accounts Status</h1>
+
+<form id="uploadForm">
+  <h3>Add Telegram Account</h3>
+  <input type="text" name="phone" placeholder="Phone (+855...)" required>
+  <input type="number" name="api_id" placeholder="API_ID" required>
+  <input type="text" name="api_hash" placeholder="API_HASH" required>
+  <input type="text" name="session" placeholder="Session String" required>
+  <button type="submit">Add Account</button>
+</form>
+
 <button id="checkBtn">Check All Accounts</button>
 
 <table>
@@ -37,6 +49,7 @@
 <script>
 const accountTable = document.getElementById('accountTable');
 const checkBtn = document.getElementById('checkBtn');
+const uploadForm = document.getElementById('uploadForm');
 
 async function fetchStatus() {
   try {
@@ -75,6 +88,31 @@ checkBtn.onclick = async () => {
 // Auto refresh every 15s
 setInterval(fetchStatus, 15000);
 fetchStatus();
+
+// Upload form
+uploadForm.onsubmit = async (e) => {
+  e.preventDefault();
+  const formData = new FormData(uploadForm);
+  const data = {
+    phone: formData.get('phone'),
+    api_id: formData.get('api_id'),
+    api_hash: formData.get('api_hash'),
+    session: formData.get('session')
+  };
+  const res = await fetch('/add-account', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  const result = await res.json();
+  if(result.success){
+    alert(`Account ${result.id} added!`);
+    uploadForm.reset();
+    fetchStatus();
+  } else {
+    alert(result.error || 'Error adding account');
+  }
+};
 </script>
 </body>
 </html>
