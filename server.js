@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, update, get, push } from 'firebase/database';
-import { TelegramClient } from 'telegram';
+import { TelegramClient, Api } from 'telegram';
 import { StringSession } from 'telegram/sessions/index.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -143,45 +143,71 @@ app.post('/members', async (req,res)=>{
   }catch(err){ res.status(500).json({error:err.message}); }
 });
 
-// ===== Add Member Auto-Rotation 20s =====
+// ===== Add Member with Rotation & 20s delay =====
 let accountIndex = 0;
 app.post('/add-member', async (req,res)=>{
   try{
-    const { username, user_id, targetGroup } = req.body;
-    if(!targetGroup || (!username && !user_id)) return res.status(400).json({error:"Missing data"});
+    const { members, targetGroup } = req.body; // expect array of members [{username,user_id}]
+    if(!targetGroup || !members || !Array.isArray(members)) return res.status(400).json({error:"Missing data"});
+
+    const results = [];
     
-    // Rotate account
-    const acc = accounts[accountIndex % accounts.length];
-    accountIndex++;
-    
-    const client = new TelegramClient(new StringSession(acc.session), acc.api_id, acc.api_hash, {connectionRetries:5});
-    await client.start({});
-    
-    try{
-      let entity = await client.getEntity(targetGroup);
-      if(username){
-        const userEntity = await client.getEntity(username);
-        await client.addChatUser(entity, {user: userEntity, fwd_limit:0});
-      } else {
-        const userEntity = await client.getEntity(user_id);
-        await client.addChatUser(entity, {user: userEntity, fwd_limit:0});
-      }
+    for(const member of members){
+      const acc = accounts[accountIndex % accounts.length];
+      accountIndex++;
+      const client = new TelegramClient(new StringSession(acc.session), acc.api_id, acc.api_hash, {connectionRetries:5});
+      await client.start({});
       
-      // Log history in Firebase
-      const histRef = push(ref(db,'history'));
-      await update(histRef,{
-        username, user_id, status:"success", accountUsed:acc.id, timestamp:Date.now()
-      });
-      await client.disconnect();
-      res.json({status:"success", accountUsed:acc.id});
-    }catch(errAdd){
-      const histRef = push(ref(db,'history'));
-      await update(histRef,{
-        username, user_id, status:"failed", accountUsed:acc.id, error:errAdd.message, timestamp:Date.now()
-      });
-      await client.disconnect();
-      res.json({status:"failed", accountUsed:acc.id, error:errAdd.message});
+      try{
+        const entityObj = await client.getEntity(targetGroup);
+        let userObj;
+        if(member.username) userObj = await client.getEntity(member.username);
+        else userObj = await client.getEntity(member.user_id.toString());
+
+        // Add member depending on type
+        if(entityObj.className === 'Channel'){
+          await client.invoke(new Api.channels.InviteToChannel({
+            channel: entityObj,
+            users: [userObj]
+          }));
+        } else {
+          await client.invoke(new Api.messages.AddChatUser({
+            chatId: entityObj.id,
+            userId: userObj,
+            fwdLimit:0
+          }));
+        }
+
+        // Log success
+        const histRef = push(ref(db,'history'));
+        await update(histRef,{
+          username: member.username,
+          user_id: member.user_id,
+          status:"success",
+          accountUsed: acc.id,
+          timestamp: Date.now()
+        });
+        results.push({username:member.username,user_id:member.user_id,status:"success",accountUsed:acc.id});
+      }catch(errAdd){
+        const histRef = push(ref(db,'history'));
+        await update(histRef,{
+          username: member.username,
+          user_id: member.user_id,
+          status:"failed",
+          accountUsed: acc.id,
+          error: errAdd.message,
+          timestamp: Date.now()
+        });
+        results.push({username:member.username,user_id:member.user_id,status:"failed",accountUsed:acc.id,error:errAdd.message});
+      }finally{
+        await client.disconnect();
+      }
+
+      // Delay 20s between members
+      await new Promise(r=>setTimeout(r,20000));
     }
+
+    res.json({results});
     
   }catch(err){ res.status(500).json({error:err.message}); }
 });
