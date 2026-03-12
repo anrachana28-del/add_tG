@@ -2,403 +2,270 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Telegram Account Monitor PRO</title>
+<title>Telegram Export Tool PRO+++ Mobile Safe</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono&display=swap" rel="stylesheet">
-
 <style>
-
-body{
-font-family:'JetBrains Mono',monospace;
-background:#121213;
-color:white;
-margin:0;
-padding:0;
-}
-
-.container{
-max-width:900px;
-margin:auto;
-padding:20px;
-}
-
-section{
-background:#1f2937;
-border-radius:16px;
-padding:20px;
-margin-bottom:20px;
-box-shadow:0 8px 20px rgba(0,0,0,0.5);
-}
-
-.card-title{
-font-size:20px;
-font-weight:700;
-margin-bottom:15px;
-color:#22c55e;
-}
-
-input{
-width:100%;
-padding:12px;
-margin-top:10px;
-border-radius:10px;
-border:none;
-background:#111827;
-color:white;
-}
-
-button{
-border:none;
-padding:10px;
-border-radius:8px;
-cursor:pointer;
-margin-top:10px;
-}
-
-#uploadBtn{
-background:#22c55e;
-color:white;
-width:100%;
-}
-
-#checkBtn{
-background:#0ea5e9;
-color:white;
-width:100%;
-margin-bottom:10px;
-}
-
-.deleteBtn{
-background:#dc2626;
-color:white;
-padding:6px 10px;
-}
-
-.table-responsive{
-overflow-x:auto;
-}
-
-table{
-width:100%;
-border-collapse:collapse;
-}
-
-th,td{
-padding:8px;
-text-align:left;
-border-bottom:1px solid rgba(255,255,255,0.1);
-}
-
-th{
-background:#374151;
-}
-
-td.active{
-background:#16a34a;
-}
-
-td.floodwait{
-background:#dc2626;
-}
-
-td.error{
-background:#facc15;
-color:black;
-}
-
-td.pending{
-background:#6b7280;
-}
-
-.flood-timer{
-font-weight:bold;
-color:#f87171;
-}
-
+body {font-family:'JetBrains Mono',monospace;background:#121213;color:#fff;margin:0;padding:0;}
+.container{max-width:900px;margin:auto;padding:20px;}
+section{background:#1f2937;border-radius:16px;padding:20px;margin-bottom:20px;box-shadow:0 8px 20px rgba(0,0,0,0.5);}
+.card-title{font-size:20px;font-weight:700;margin-bottom:15px;color:#22c55e;}
+input{width:100%;padding:12px;margin-top:12px;border-radius:12px;border:none;background:#111827;color:#fff;font-size:16px;box-sizing:border-box;}
+button{border:none;padding:10px;border-radius:8px;cursor:pointer;font-size:15px;transition:all .2s ease;}
+button:active{transform:scale(.96);}
+.btn-group{display:flex;gap:8px;margin-top:20px;flex-wrap:wrap;}
+.btn-group button{flex:1;min-width:120px;background:#ffffffeb;color:black;border-radius:8px;}
+.btn-group button:hover{background:#717875;color:white;}
+#uploadBtn,#addAccountBtn,#exportBtn{background:#22c55e;color:#fff;}
+#deleteProcessingBtn{background:#fff7f7;color:red;}
+#downloadBtn,#downloadHistoryBtn{margin-top:12px;width:100%;background:#38bdf8;color:#000;}
+ul{list-style:none;padding:0;margin-top:10px;}
+li{padding:6px;border-bottom:1px solid rgba(255,255,255,0.05);display:flex;align-items:center;gap:8px;}
+.username-highlight{padding:2px 6px;border-radius:4px;background:linear-gradient(90deg,#63e209,#0ea5e9);animation:glow 1.5s infinite alternate;}
+.avatar{width:30px;height:30px;border-radius:50%;object-fit:cover;border:1px solid #fff;}
+@keyframes glow{0%{opacity:0.8;}100%{opacity:1;}}
+.stats{margin-top:10px;font-size:14px;color:#38bdf8;}
+.table-responsive{width:100%;overflow-x:auto;}
+table{width:100%;border-collapse:collapse;}
+th,td{padding:8px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1);}
+th{background:#374151;color:#fff;}
+#memberList{max-height:50vh;overflow-y:auto;}
+.page{display:none;}
+.page.active{display:block;}
 @media(max-width:600px){
-
-.container{
-padding:12px;
+  .container{padding:15px;}
+  .btn-group button{flex:1 1 45%;font-size:14px;padding:10px;}
+  input{font-size:14px;padding:10px;}
+  table,th,td{font-size:12px;}
+  .avatar{width:24px;height:24px;}
 }
-
-table{
-font-size:12px;
-}
-
-}
-
 </style>
 </head>
-
 <body>
-
 <div class="container">
 
-<section>
-
-<div class="card-title">Add Telegram Account</div>
-
-<form id="uploadForm">
-
-<input type="text" name="phone" placeholder="Phone (+855...)" required>
-
-<input type="number" name="api_id" placeholder="API ID" required>
-
-<input type="text" name="api_hash" placeholder="API HASH" required>
-
-<input type="text" name="session" placeholder="Session String" required>
-
-<button type="submit" id="uploadBtn">Add Account</button>
-
-</form>
-
-</section>
-
-
-<section>
-
-<div class="card-title">Accounts Status</div>
-
-<button id="checkBtn">Check All Accounts</button>
-
-<div class="table-responsive">
-
-<table>
-
-<thead>
-
-<tr>
-
-<th>ID</th>
-<th>Phone</th>
-<th>Status</th>
-<th>FloodWait</th>
-<th>Last Checked</th>
-<th>Error</th>
-<th>Action</th>
-
-</tr>
-
-</thead>
-
-<tbody id="accountTable">
-
-<tr>
-<td colspan="7">Loading...</td>
-</tr>
-
-</tbody>
-
-</table>
-
+<!-- Navigation Buttons -->
+<div class="btn-group">
+  <button class="nav-btn" data-page="accountsPage">Accounts Status</button>
+  <button class="nav-btn" data-page="membersPage">Members List</button>
+  <button class="nav-btn" data-page="uploadPage">Upload Accounts</button>
+  <button class="nav-btn" data-page="historyPage">History</button>
 </div>
 
+<!-- Accounts Page -->
+<section id="accountsPage" class="page active">
+  <div class="card-title">Telegram Accounts Status</div>
+  <div class="table-responsive">
+    <table>
+      <thead>
+        <tr><th>ID</th><th>Phone</th><th>Status</th><th>FloodWait</th><th>Last Checked</th></tr>
+      </thead>
+      <tbody id="accountsTable"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- Members Page -->
+<section id="membersPage" class="page">
+  <div class="card-title">Members List</div>
+  <div style="margin-bottom:10px;">
+    <input type="text" id="groupInput" placeholder="Enter Telegram Group link or username">
+    <button id="fetchMembersBtn" style="margin-top:6px;">Fetch Members</button>
+  </div>
+  <div style="margin-bottom:10px;">
+    <span id="exportCounter">0 / 0 exported</span>
+    <div style="background:#374151;border-radius:12px;height:12px;margin-top:4px;">
+      <div id="exportProgress" style="background:#22c55e;height:12px;width:0%;border-radius:12px;"></div>
+    </div>
+  </div>
+  <ul id="memberList"></ul>
+  <button id="downloadBtn">Download Members</button>
+</section>
+
+<!-- Upload Accounts Page -->
+<section id="uploadPage" class="page">
+  <div class="card-title">Upload Telegram Accounts</div>
+  <!-- Input fields -->
+  <input type="text" id="phoneInput" placeholder="Phone (+855...)">
+  <input type="text" id="apiIdInput" placeholder="API_ID">
+  <input type="text" id="apiHashInput" placeholder="API_HASH">
+  <input type="text" id="sessionInput" placeholder="Session String">
+  <button id="addAccountBtn">Add Account</button>
+  <div style="margin-top:12px;">
+    <input type="file" id="file" accept=".txt,.env">
+    <button id="uploadBtn">Upload File Accounts</button>
+  </div>
+  <div class="stats" id="uploadStats"></div>
+</section>
+
+<!-- History Page -->
+<section id="historyPage" class="page">
+  <div class="card-title">History</div>
+  <button id="downloadHistoryBtn">Download History</button>
 </section>
 
 </div>
-
 
 <script>
-
-const accountTable=document.getElementById("accountTable");
-const uploadForm=document.getElementById("uploadForm");
-const checkBtn=document.getElementById("checkBtn");
-
-
-function formatTime(sec){
-
-const m=Math.floor(sec/60);
-const s=sec%60;
-
-if(m>0){
-return m+"m "+s+"s";
-}
-
-return s+"s";
-
-}
-
-
-// ===== Fetch Status =====
-async function fetchStatus(){
-
-try{
-
-const res=await fetch('/account-status');
-
-const data=await res.json();
-
-accountTable.innerHTML="";
-
-if(!data || Object.keys(data).length===0){
-
-accountTable.innerHTML=`<tr><td colspan="7">No Accounts</td></tr>`;
-
-return;
-
-}
-
-for(const id in data){
-
-const acc=data[id];
-
-const lastChecked=acc.lastChecked
-?new Date(acc.lastChecked).toLocaleString()
-:"-";
-
-const flood=acc.floodWait
-?`<span class="flood-timer" data-time="${acc.floodWait}">${formatTime(acc.floodWait)}</span>`
-:"-";
-
-const tr=document.createElement("tr");
-
-tr.innerHTML=`
-
-<td>${id}</td>
-
-<td>${acc.phone||"-"}</td>
-
-<td class="${acc.status||""}">${acc.status||"unknown"}</td>
-
-<td>${flood}</td>
-
-<td>${lastChecked}</td>
-
-<td>${acc.error||""}</td>
-
-<td>
-<button class="deleteBtn" data-id="${id}">Delete</button>
-</td>
-
-`;
-
-accountTable.appendChild(tr);
-
-}
-
-}catch(err){
-
-accountTable.innerHTML=`<tr><td colspan="7">Error loading</td></tr>`;
-
-}
-
-}
-
-
-// ===== Upload Account =====
-uploadForm.onsubmit=async(e)=>{
-
-e.preventDefault();
-
-const formData=new FormData(uploadForm);
-
-const data={
-
-phone:formData.get("phone"),
-api_id:formData.get("api_id"),
-api_hash:formData.get("api_hash"),
-session:formData.get("session")
-
-};
-
-const res=await fetch('/add-account',{
-
-method:'POST',
-headers:{'Content-Type':'application/json'},
-body:JSON.stringify(data)
-
+// ===== Navigation =====
+const navButtons = document.querySelectorAll(".nav-btn");
+const pages = document.querySelectorAll(".page");
+navButtons.forEach(btn => {
+  btn.onclick = () => {
+    const target = btn.dataset.page;
+    pages.forEach(p => p.classList.remove("active"));
+    document.getElementById(target).classList.add("active");
+  }
 });
 
-const result=await res.json();
+// ===== Accounts Table Live FloodWait =====
+const accountsTable = document.getElementById("accountsTable");
+let accountsData = {}; // store last fetch
 
-if(result.success){
-
-alert("Account Added");
-
-uploadForm.reset();
-
-fetchStatus();
-
-}else{
-
-alert(result.error||"Error");
-
+// Fetch accounts from server every 10s (full refresh)
+async function fetchAccounts(){
+  try{
+    const res = await fetch("/account-status");
+    const data = await res.json();
+    accountsData = data; // save for live countdown
+    renderAccounts();
+  }catch(err){ console.log(err); }
 }
 
-};
-
-
-// ===== Delete Account =====
-document.addEventListener("click",async(e)=>{
-
-if(e.target.classList.contains("deleteBtn")){
-
-const id=e.target.dataset.id;
-
-if(!confirm("Delete "+id+" ?")) return;
-
-const res=await fetch(`/delete-account/${id}`,{
-method:"DELETE"
-});
-
-const result=await res.json();
-
-if(result.success){
-
-fetchStatus();
-
-}else{
-
-alert(result.error);
-
+// Render Accounts Table
+function renderAccounts(){
+  accountsTable.innerHTML="";
+  Object.keys(accountsData).forEach(id=>{
+    const acc = accountsData[id];
+    const tr = document.createElement("tr");
+    tr.id = `row-${id}`;
+    let statusEmoji="🟡";
+    if(acc.status==="active") statusEmoji="🟢";
+    if(acc.status==="floodwait") statusEmoji="🔴";
+    if(acc.status==="error") statusEmoji="🟡";
+    let floodWait="-";
+    if(acc.status==="floodwait" && acc.floodWaitUntil){
+      const remaining=Math.max(0,Math.floor((acc.floodWaitUntil-Date.now())/1000));
+      const min=Math.floor(remaining/60);
+      const sec=remaining%60;
+      floodWait=`${min}m ${sec}s`;
+    }
+    let lastChecked=acc.lastChecked?new Date(acc.lastChecked).toLocaleTimeString():"-";
+    tr.innerHTML=`<td>${id}</td><td>${acc.phone}</td><td>${statusEmoji} ${acc.status}</td><td class="floodwait">${floodWait}</td><td>${lastChecked}</td>`;
+    accountsTable.appendChild(tr);
+  });
 }
 
-}
-
-});
-
-
-// ===== Manual Check =====
-checkBtn.onclick=async()=>{
-
-accountTable.innerHTML=`<tr><td colspan="7">Checking...</td></tr>`;
-
-await fetch('/check-accounts');
-
-fetchStatus();
-
-};
-
-
-// ===== Auto Refresh =====
-setInterval(fetchStatus,15000);
-
-fetchStatus();
-
-
-// ===== FloodWait Countdown =====
+// Live FloodWait countdown update every second
 setInterval(()=>{
-
-document.querySelectorAll(".flood-timer").forEach(el=>{
-
-let sec=parseInt(el.dataset.time);
-
-if(sec>0){
-
-sec--;
-
-el.dataset.time=sec;
-
-el.innerText=formatTime(sec);
-
-}
-
-});
-
+  Object.keys(accountsData).forEach(id=>{
+    const acc = accountsData[id];
+    if(acc.status==="floodwait" && acc.floodWaitUntil){
+      const remaining = Math.max(0, Math.floor((acc.floodWaitUntil-Date.now())/1000));
+      const min=Math.floor(remaining/60);
+      const sec=remaining%60;
+      const floodEl = document.querySelector(`#row-${id} .floodwait`);
+      if(floodEl) floodEl.textContent = `${min}m ${sec}s`;
+    }
+  });
 },1000);
 
-</script>
+// Initial fetch + full refresh every 10s
+fetchAccounts();
+setInterval(fetchAccounts,10000);
 
+// ===== Members Page =====
+let memberList=[];
+const memberListEl=document.getElementById("memberList");
+const exportCounterEl=document.getElementById("exportCounter");
+const exportProgressEl=document.getElementById("exportProgress");
+const groupInputEl=document.getElementById("groupInput");
+const fetchMembersBtn=document.getElementById("fetchMembersBtn");
+
+fetchMembersBtn.onclick = async ()=>{
+  const group = groupInputEl.value.trim();
+  if(!group){ alert("Enter group link or username"); return; }
+  try{
+    const res = await fetch("/members",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({group})
+    });
+    const data = await res.json();
+    memberList = data;
+    memberListEl.innerHTML="";
+    exportCounterEl.textContent = `0 / ${memberList.length} exported`;
+    exportProgressEl.style.width = "0%";
+    let exported = 0;
+    for(const m of memberList){
+      const li = document.createElement("li");
+      li.innerHTML = `<img class="avatar" src="${m.avatar||''}"><span class="username-highlight">${m.username||'-'}</span> <span>${m.user_id}</span>`;
+      memberListEl.appendChild(li);
+      exported++;
+      exportCounterEl.textContent = `${exported} / ${memberList.length} exported`;
+      exportProgressEl.style.width = `${Math.floor((exported/memberList.length)*100)}%`;
+      await new Promise(r=>setTimeout(r,50));
+    }
+  }catch(err){ console.log(err); }
+};
+
+document.getElementById("downloadBtn").onclick=()=>{
+  if(memberList.length===0){ alert("No members to download"); return; }
+  const dataStr="data:text/json;charset=utf-8,"+encodeURIComponent(JSON.stringify(memberList,null,2));
+  const a=document.createElement("a");
+  a.href=dataStr;
+  a.download="members.json";
+  a.click();
+};
+
+// ===== Upload Accounts Input Fields =====
+const phoneInput = document.getElementById("phoneInput");
+const apiIdInput = document.getElementById("apiIdInput");
+const apiHashInput = document.getElementById("apiHashInput");
+const sessionInput = document.getElementById("sessionInput");
+const addAccountBtn = document.getElementById("addAccountBtn");
+const uploadStats = document.getElementById("uploadStats");
+
+addAccountBtn.onclick = async () => {
+  const phone = phoneInput.value.trim();
+  const api_id = apiIdInput.value.trim();
+  const api_hash = apiHashInput.value.trim();
+  const session = sessionInput.value.trim();
+  if(!phone || !api_id || !api_hash || !session){ alert("All fields required"); return; }
+  const res = await fetch("/add-account",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({phone, api_id, api_hash, session})
+  });
+  const data = await res.json();
+  if(data.success){
+    uploadStats.textContent=`Account ${phone} added successfully`;
+    phoneInput.value=""; apiIdInput.value=""; apiHashInput.value=""; sessionInput.value="";
+    fetchAccounts();
+  }else{ uploadStats.textContent=`Failed: ${data.error||"Unknown"}`; }
+};
+
+// ===== Upload Accounts File =====
+document.getElementById("uploadBtn").onclick = async ()=>{
+  const file = document.getElementById("file").files[0];
+  if(!file){ alert("Select file first"); return; }
+  const text = await file.text();
+  const res = await fetch("/upload-accounts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({accounts:text})});
+  const data = await res.json();
+  if(data.success){ uploadStats.textContent=`File accounts uploaded`; fetchAccounts(); }
+  else{ uploadStats.textContent=`Failed: ${data.error||"Unknown"}`; }
+};
+
+// ===== Download History =====
+document.getElementById("downloadHistoryBtn").onclick = async ()=>{
+  const res = await fetch("/history");
+  const data = await res.json();
+  const dataStr="data:text/json;charset=utf-8,"+encodeURIComponent(JSON.stringify(data,null,2));
+  const a=document.createElement("a");
+  a.href=dataStr;
+  a.download="history.json";
+  a.click();
+};
+</script>
 </body>
 </html>
