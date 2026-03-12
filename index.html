@@ -112,75 +112,32 @@ th{background:#374151;color:#fff;}
 // ===== Navigation =====
 const navButtons=document.querySelectorAll(".nav-btn");
 const pages=document.querySelectorAll(".page");
-navButtons.forEach(btn=>{ 
-  btn.onclick=()=>{ 
-    pages.forEach(p=>p.classList.remove("active")); 
-    document.getElementById(btn.dataset.page).classList.add("active"); 
-  }; 
-});
+navButtons.forEach(btn=>{ btn.onclick=()=>{ pages.forEach(p=>p.classList.remove("active")); document.getElementById(btn.dataset.page).classList.add("active"); }; });
 
 // ===== Accounts =====
 const accountsTable=document.getElementById("accountsTable");
 let accountsData={};
 async function fetchAccounts(){
-  try{ 
-    const res=await fetch("/account-status"); 
-    accountsData=await res.json(); 
-    renderAccounts(); 
-  }catch(e){console.log(e);}
+  try{ const res=await fetch("/account-status"); accountsData=await res.json(); renderAccounts(); }catch(e){console.log(e);}
 }
 function renderAccounts(){
   accountsTable.innerHTML="";
   Object.keys(accountsData).forEach(id=>{
-    const acc=accountsData[id]; 
-    const tr=document.createElement("tr"); 
-    tr.id=`row-${id}`;
-    let statusEmoji="🟡"; 
-    if(acc.status==="active")statusEmoji="🟢"; 
-    if(acc.status==="floodwait")statusEmoji="🔴";
-    let flood="-"; 
-    if(acc.status==="floodwait" && acc.floodWaitUntil){
-      const r=Math.max(0,Math.floor((acc.floodWaitUntil-Date.now())/1000));
-      flood=`${Math.floor(r/60)}m ${r%60}s`;
-    }
+    const acc=accountsData[id]; const tr=document.createElement("tr"); tr.id=`row-${id}`;
+    let statusEmoji="🟡"; if(acc.status==="active")statusEmoji="🟢"; if(acc.status==="floodwait")statusEmoji="🔴";
+    let flood="-"; if(acc.status==="floodwait" && acc.floodWaitUntil){const r=Math.max(0,Math.floor((acc.floodWaitUntil-Date.now())/1000));flood=`${Math.floor(r/60)}m ${r%60}s`;}
     let lastChecked=acc.lastChecked?new Date(acc.lastChecked).toLocaleTimeString():"-";
     tr.innerHTML=`<td>${id}</td><td>${acc.phone}</td><td>${statusEmoji} ${acc.status}</td><td class="floodwait">${flood}</td><td>${lastChecked}</td>`;
     accountsTable.appendChild(tr);
   });
 }
-setInterval(()=>{
-  Object.keys(accountsData).forEach(id=>{
-    const acc=accountsData[id]; 
-    if(acc.status==="floodwait" && acc.floodWaitUntil){
-      const r=Math.max(0,Math.floor((acc.floodWaitUntil-Date.now())/1000)); 
-      const el=document.querySelector(`#row-${id} .floodwait`); 
-      if(el) el.textContent=`${Math.floor(r/60)}m ${r%60}s`; 
-    }
-  }); 
-},1000);
+setInterval(()=>{ Object.keys(accountsData).forEach(id=>{ const acc=accountsData[id]; if(acc.status==="floodwait" && acc.floodWaitUntil){const r=Math.max(0,Math.floor((acc.floodWaitUntil-Date.now())/1000)); const el=document.querySelector(`#row-${id} .floodwait`); if(el) el.textContent=`${Math.floor(r/60)}m ${r%60}s`; } }); },1000);
 fetchAccounts(); setInterval(fetchAccounts,10000);
 
 // ===== Upload Accounts =====
 const phoneInput=document.getElementById("phoneInput"), apiIdInput=document.getElementById("apiIdInput"), apiHashInput=document.getElementById("apiHashInput"), sessionInput=document.getElementById("sessionInput"), addAccountBtn=document.getElementById("addAccountBtn"), uploadStats=document.getElementById("uploadStats");
-addAccountBtn.onclick=async ()=>{
-  const phone=phoneInput.value.trim(),api_id=apiIdInput.value.trim(),api_hash=apiHashInput.value.trim(),session=sessionInput.value.trim();
-  if(!phone||!api_id||!api_hash||!session){alert("All fields required");return;}
-  const res=await fetch("/add-account",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({phone,api_id,api_hash,session})});
-  const data=await res.json();
-  if(data.success){
-    uploadStats.textContent=`Account ${phone} added successfully`;
-    phoneInput.value="";apiIdInput.value="";apiHashInput.value="";sessionInput.value="";
-    fetchAccounts();
-  }else{uploadStats.textContent=`Failed: ${data.error||"Unknown"}`;}
-};
-document.getElementById("uploadBtn").onclick=async ()=>{
-  const file=document.getElementById("file").files[0];if(!file){alert("Select file");return;}
-  const txt=await file.text();
-  const res=await fetch("/upload-accounts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({accounts:txt})});
-  const data=await res.json();
-  if(data.success){uploadStats.textContent="File accounts uploaded";fetchAccounts();}
-  else{uploadStats.textContent=`Failed: ${data.error||"Unknown"}`;}
-};
+addAccountBtn.onclick=async ()=>{const phone=phoneInput.value.trim(),api_id=apiIdInput.value.trim(),api_hash=apiHashInput.value.trim(),session=sessionInput.value.trim();if(!phone||!api_id||!api_hash||!session){alert("All fields required");return;}const res=await fetch("/add-account",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({phone,api_id,api_hash,session})});const data=await res.json();if(data.success){uploadStats.textContent=`Account ${phone} added successfully`;phoneInput.value="";apiIdInput.value="";apiHashInput.value="";sessionInput.value="";fetchAccounts();}else{uploadStats.textContent=`Failed: ${data.error||"Unknown"}`;}};
+document.getElementById("uploadBtn").onclick=async ()=>{const file=document.getElementById("file").files[0];if(!file){alert("Select file");return;}const txt=await file.text();const res=await fetch("/upload-accounts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({accounts:txt})});const data=await res.json();if(data.success){uploadStats.textContent="File accounts uploaded";fetchAccounts();}else{uploadStats.textContent=`Failed: ${data.error||"Unknown"}`;}};
 
 // ===== Auto-Add Members =====
 const autoAddListEl=document.getElementById("autoAddList"), autoAddCounterEl=document.getElementById("autoAddCounter"), autoAddProgressEl=document.getElementById("autoAddProgress"), startAutoAddBtn=document.getElementById("startAutoAddBtn");
@@ -206,7 +163,7 @@ startAutoAddBtn.onclick=async ()=>{
       autoAddListEl.appendChild(li);
     }
     processed++; autoAddCounterEl.textContent=`${processed} / ${total}`; autoAddProgressEl.style.width=`${Math.floor((processed/total)*100)}%`;
-    await new Promise(r=>setTimeout(r,20000)); // 20s delay
+    await new Promise(r=>setTimeout(r,20000));
   }
   alert("Auto-Add Completed!");
 };
