@@ -1,79 +1,80 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Telegram Accounts Status</title>
-  <style>
-    body { font-family: monospace; background: #121212; color: #eee; padding: 20px; }
-    h1 { text-align: center; margin-bottom: 20px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-    th, td { padding: 10px; text-align: left; border-radius: 5px; }
-    th { background-color: #222; }
-    td.active { background-color: #28a745; }
-    td.floodwait { background-color: #dc3545; }
-    td.error { background-color: #ffc107; color: #000; }
-    button { padding: 8px 16px; cursor: pointer; font-weight: bold; margin-bottom: 10px; }
-  </style>
+<meta charset="UTF-8">
+<title>Telegram Accounts Status</title>
+<style>
+  body { font-family: monospace; background: #121212; color: #eee; padding: 20px; }
+  h1 { text-align: center; margin-bottom: 20px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+  th, td { padding: 10px; border-radius: 5px; text-align: left; }
+  th { background-color: #222; }
+  td.active { background-color: #28a745; }
+  td.floodwait { background-color: #dc3545; }
+  td.error { background-color: #ffc107; color: #000; }
+  button { padding: 8px 16px; cursor: pointer; font-weight: bold; margin-bottom: 10px; }
+</style>
 </head>
 <body>
-  <h1>Telegram Accounts Status</h1>
-  <button id="checkBtn">Check All Accounts</button>
+<h1>Telegram Accounts Status</h1>
+<button id="checkBtn">Check All Accounts</button>
 
-  <table>
-    <thead>
-      <tr>
-        <th>Account ID</th>
-        <th>Phone</th>
-        <th>Status</th>
-        <th>Last Checked</th>
-      </tr>
-    </thead>
-    <tbody id="accountTable">
-      <tr><td colspan="4">Loading accounts...</td></tr>
-    </tbody>
-  </table>
+<table>
+  <thead>
+    <tr>
+      <th>Account ID</th>
+      <th>Phone</th>
+      <th>Status</th>
+      <th>Last Checked</th>
+      <th>Error</th>
+    </tr>
+  </thead>
+  <tbody id="accountTable">
+    <tr><td colspan="5">Loading accounts...</td></tr>
+  </tbody>
+</table>
 
-  <script>
-    const accountTable = document.getElementById('accountTable');
-    const checkBtn = document.getElementById('checkBtn');
+<script>
+const accountTable = document.getElementById('accountTable');
+const checkBtn = document.getElementById('checkBtn');
 
-    async function fetchStatus() {
-      try {
-        const res = await fetch('/account-status');
-        const data = await res.json();
-        accountTable.innerHTML = '';
-
-        if(!data || Object.keys(data).length === 0){
-          accountTable.innerHTML = '<tr><td colspan="4">No accounts found</td></tr>';
-          return;
-        }
-
-        for(const id in data){
-          const acc = data[id];
-          const tr = document.createElement('tr');
-          const lastChecked = acc.lastChecked ? new Date(acc.lastChecked).toLocaleString() : '-';
-          tr.innerHTML = `
-            <td>${id}</td>
-            <td>${acc.phone || '-'}</td>
-            <td class="${acc.status || ''}">${acc.status || 'unknown'}</td>
-            <td>${lastChecked}</td>
-          `;
-          accountTable.appendChild(tr);
-        }
-      } catch(err){
-        accountTable.innerHTML = '<tr><td colspan="4">Error fetching status</td></tr>';
-        console.error(err);
-      }
+async function fetchStatus() {
+  try {
+    const res = await fetch('/account-status');
+    const data = await res.json();
+    accountTable.innerHTML = '';
+    if(!data || Object.keys(data).length === 0){
+      accountTable.innerHTML = '<tr><td colspan="5">No accounts found</td></tr>';
+      return;
     }
+    for(const id in data){
+      const acc = data[id];
+      const lastChecked = acc.lastChecked ? new Date(acc.lastChecked).toLocaleString() : '-';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${id}</td>
+        <td>${acc.phone || '-'}</td>
+        <td class="${acc.status || ''}">${acc.status || 'unknown'}</td>
+        <td>${lastChecked}</td>
+        <td>${acc.error || ''}</td>
+      `;
+      accountTable.appendChild(tr);
+    }
+  } catch(err){
+    accountTable.innerHTML = '<tr><td colspan="5">Error fetching status</td></tr>';
+    console.error(err);
+  }
+}
 
-    checkBtn.onclick = async () => {
-      accountTable.innerHTML = '<tr><td colspan="4">Checking accounts...</td></tr>';
-      await fetch('/check-accounts');
-      await fetchStatus();
-    };
+checkBtn.onclick = async () => {
+  accountTable.innerHTML = '<tr><td colspan="5">Checking accounts...</td></tr>';
+  await fetch('/check-accounts');
+  await fetchStatus();
+};
 
-    setInterval(fetchStatus, 15000);
-    fetchStatus();
-  </script>
+// Auto refresh every 15s
+setInterval(fetchStatus, 15000);
+fetchStatus();
+</script>
 </body>
 </html>
