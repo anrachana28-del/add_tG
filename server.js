@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
-import { initializeApp } from "firebase/app";
-import { getDatabase, ref, update, get } from "firebase/database";
+import { initializeApp } from 'firebase/app';
+import { getDatabase, ref, update, get } from 'firebase/database';
 import { TelegramClient } from 'telegram';
 import { StringSession } from 'telegram/sessions/index.js';
 import input from 'input';
@@ -11,16 +11,16 @@ import { fileURLToPath } from 'url';
 const app = express();
 app.use(express.json());
 
-// ===== Firebase Config =====
+// Firebase config
 const firebaseConfig = {
   apiKey: process.env.FIREBASE_API_KEY,
   authDomain: process.env.FIREBASE_AUTH_DOMAIN,
-  databaseURL: process.env.FIREBASE_DB_URL,
+  databaseURL: process.env.FIREBASE_DB_URL
 };
 const appFirebase = initializeApp(firebaseConfig);
 const db = getDatabase(appFirebase);
 
-// ===== Load TG accounts from .env dynamically =====
+// Load Telegram accounts from Environment Variables
 const accounts = [];
 let i = 1;
 while(process.env[`TG_ACCOUNT_${i}_PHONE`]){
@@ -34,23 +34,21 @@ while(process.env[`TG_ACCOUNT_${i}_PHONE`]){
   i++;
 }
 
-// ===== Check TG Account FloodWait =====
+// Check account status
 async function checkTGAccount(account){
-  try{
+  try {
     const client = new TelegramClient(
       new StringSession(account.session),
       account.api_id,
       account.api_hash,
       { connectionRetries: 5 }
     );
-
     await client.start({
       phoneNumber: async () => account.phone,
       password: async () => input.text('2FA Password (if any): '),
       phoneCode: async () => input.text('Code: '),
       onError: console.log
     });
-
     await client.getMe();
 
     await update(ref(db, `accounts/${account.id}`), {
@@ -62,26 +60,20 @@ async function checkTGAccount(account){
     await client.disconnect();
     return { id: account.id, status: "active" };
 
-  } catch(err){
+  } catch(err) {
     console.log(err.message);
-    if(err.message.includes("FLOOD_WAIT")){
-      await update(ref(db, `accounts/${account.id}`), {
-        status: "floodwait",
-        phone: account.phone,
-        lastChecked: Date.now()
-      });
-      return { id: account.id, status: "floodwait" };
-    }
+    let status = "error";
+    if(err.message.includes("FLOOD_WAIT")) status = "floodwait";
     await update(ref(db, `accounts/${account.id}`), {
-      status: "error",
+      status,
       phone: account.phone,
       lastChecked: Date.now()
     });
-    return { id: account.id, status: "error", error: err.message };
+    return { id: account.id, status, error: err.message };
   }
 }
 
-// ===== API endpoints =====
+// API endpoints
 app.get('/check-accounts', async (req, res) => {
   const results = [];
   for(const acc of accounts){
@@ -96,7 +88,7 @@ app.get('/account-status', async (req, res) => {
   res.json(snapshot.val() || {});
 });
 
-// ===== Serve index.html from root =====
+// Serve index.html from root
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 app.get('/', (req, res) => {
