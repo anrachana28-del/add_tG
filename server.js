@@ -2,8 +2,9 @@ import 'dotenv/config';
 import express from 'express';
 import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, update, get, push } from 'firebase/database';
-import { TelegramClient, Api } from 'telegram';
+import { TelegramClient } from 'telegram';
 import { StringSession } from 'telegram/sessions/index.js';
+import { Api } from 'telegram';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -19,7 +20,7 @@ const firebaseConfig = {
 initializeApp(firebaseConfig);
 const db = getDatabase();
 
-// ===== Load Telegram Accounts from .env =====
+// ===== Load Telegram Accounts =====
 const accounts = [];
 let i = 1;
 while(process.env[`TG_ACCOUNT_${i}_PHONE`]){
@@ -33,7 +34,7 @@ while(process.env[`TG_ACCOUNT_${i}_PHONE`]){
   i++;
 }
 
-// ===== Check Telegram Account =====
+// ===== Auto Check Accounts =====
 async function checkTGAccount(account){
   try{
     const client = new TelegramClient(
@@ -52,12 +53,11 @@ async function checkTGAccount(account){
       floodWaitUntil: null
     });
     await client.disconnect();
-    return { id: account.id, status: "active" };
   }catch(err){
     let status = "error";
     let floodUntil = null;
     if(err.message.includes("FLOOD_WAIT")){
-      status="floodwait";
+      status = "floodwait";
       const m = err.message.match(/FLOOD_WAIT_(\d+)/);
       if(m) floodUntil = Date.now() + Number(m[1])*1000;
     }
@@ -68,68 +68,22 @@ async function checkTGAccount(account){
       error: err.message,
       floodWaitUntil: floodUntil
     });
-    return { id: account.id, status, error: err.message, floodWaitUntil: floodUntil };
   }
 }
 
-// ===== Auto Check Accounts =====
-const CHECK_INTERVAL = 60000;
-async function autoCheck(){
-  for(const acc of accounts){
-    try{ await checkTGAccount(acc); console.log(`Checked ${acc.id}`); }
-    catch(err){ console.log(`Error ${acc.id}: ${err.message}`); }
-  }
-}
-setInterval(autoCheck,CHECK_INTERVAL);
-autoCheck();
+// Auto check interval
+setInterval(()=>accounts.forEach(acc=>checkTGAccount(acc)),60000);
+accounts.forEach(acc=>checkTGAccount(acc));
 
-// ===== API Endpoints =====
+// ===== API =====
 
-// Get all accounts
-app.get('/account-status', async (req,res)=>{
-  const snapshot = await get(ref(db,'accounts'));
-  res.json(snapshot.val() || {});
-});
-
-// Add single account
-app.post('/add-account', async (req,res)=>{
-  const { phone, api_id, api_hash, session } = req.body;
-  if(!phone || !api_id || !api_hash || !session) return res.status(400).json({error:"All fields required"});
-  const newId = `TG_ACCOUNT_${accounts.length+1}`;
-  accounts.push({phone, api_id:Number(api_id), api_hash, session, id:newId});
-  await update(ref(db, `accounts/${newId}`), {
-    phone, api_id:Number(api_id), api_hash, session,
-    status:"pending", lastChecked:null, error:"", floodWaitUntil:null
-  });
-  res.json({success:true,id:newId});
-});
-
-// Upload multiple accounts via file content
-app.post('/upload-accounts', async (req,res)=>{
-  try{
-    const { accounts:txt } = req.body;
-    const lines = txt.split(/\r?\n/).filter(l=>l.trim());
-    for(const line of lines){
-      const [phone, api_id, api_hash, session] = line.split(",");
-      if(!phone||!api_id||!api_hash||!session) continue;
-      const newId = `TG_ACCOUNT_${accounts.length+1}`;
-      accounts.push({phone, api_id:Number(api_id), api_hash, session, id:newId});
-      await update(ref(db, `accounts/${newId}`),{
-        phone, api_id:Number(api_id), api_hash, session,
-        status:"pending", lastChecked:null, error:"", floodWaitUntil:null
-      });
-    }
-    res.json({success:true});
-  }catch(err){ res.json({success:false,error:err.message}); }
-});
-
-// Fetch Members from a Telegram group
+// Fetch members
 app.post('/members', async (req,res)=>{
   try{
     const { group } = req.body;
     if(!group) return res.status(400).json({error:"Group required"});
-    const acc = accounts[0]; // use first account
-    const client = new TelegramClient(new StringSession(acc.session),acc.api_id,acc.api_hash,{connectionRetries:5});
+    const acc = accounts[0];
+    const client = new TelegramClient(new StringSession(acc.session), acc.api_id, acc.api_hash, {connectionRetries:5});
     await client.start({});
     const entity = await client.getEntity(group);
     const participants = await client.getParticipants(entity);
@@ -143,40 +97,34 @@ app.post('/members', async (req,res)=>{
   }catch(err){ res.status(500).json({error:err.message}); }
 });
 
-// ===== Add Member with Rotation & 20s delay =====
+// ===== Add member with rotation + delay 20s =====
 let accountIndex = 0;
+
 app.post('/add-member', async (req,res)=>{
   try{
-    const { members, targetGroup } = req.body; // expect array of members [{username,user_id}]
-    if(!targetGroup || !members || !Array.isArray(members)) return res.status(400).json({error:"Missing data"});
-
-    const results = [];
+    const { members, targetGroup } = req.body;
+    if(!targetGroup || !members || !Array.isArray(members) || members.length===0)
+      return res.status(400).json({error:"Missing data"});
     
+    const results = [];
+
     for(const member of members){
       const acc = accounts[accountIndex % accounts.length];
       accountIndex++;
       const client = new TelegramClient(new StringSession(acc.session), acc.api_id, acc.api_hash, {connectionRetries:5});
       await client.start({});
-      
       try{
-        const entityObj = await client.getEntity(targetGroup);
-        let userObj;
-        if(member.username) userObj = await client.getEntity(member.username);
-        else userObj = await client.getEntity(member.user_id.toString());
-
-        // Add member depending on type
-        if(entityObj.className === 'Channel'){
-          await client.invoke(new Api.channels.InviteToChannel({
-            channel: entityObj,
-            users: [userObj]
-          }));
+        const entity = await client.getEntity(targetGroup);
+        let userEntity;
+        if(member.username){
+          userEntity = await client.getEntity(member.username);
         } else {
-          await client.invoke(new Api.messages.AddChatUser({
-            chatId: entityObj.id,
-            userId: userObj,
-            fwdLimit:0
-          }));
+          userEntity = await client.getEntity(member.user_id);
         }
+        // Invite member to channel/group
+        await client.invoke(
+          new Api.channels.InviteToChannel({ channel: entity, users: [userEntity] })
+        );
 
         // Log success
         const histRef = push(ref(db,'history'));
@@ -187,7 +135,8 @@ app.post('/add-member', async (req,res)=>{
           accountUsed: acc.id,
           timestamp: Date.now()
         });
-        results.push({username:member.username,user_id:member.user_id,status:"success",accountUsed:acc.id});
+
+        results.push({ ...member, status:"success", accountUsed: acc.id });
       }catch(errAdd){
         const histRef = push(ref(db,'history'));
         await update(histRef,{
@@ -198,21 +147,18 @@ app.post('/add-member', async (req,res)=>{
           error: errAdd.message,
           timestamp: Date.now()
         });
-        results.push({username:member.username,user_id:member.user_id,status:"failed",accountUsed:acc.id,error:errAdd.message});
-      }finally{
-        await client.disconnect();
+        results.push({ ...member, status:"failed", accountUsed: acc.id, error: errAdd.message });
       }
-
-      // Delay 20s between members
+      await client.disconnect();
+      // Wait 20 seconds before next account/member
       await new Promise(r=>setTimeout(r,20000));
     }
 
-    res.json({results});
-    
+    res.json({ results });
   }catch(err){ res.status(500).json({error:err.message}); }
 });
 
-// Download history
+// ===== Download history =====
 app.get('/history', async (req,res)=>{
   const snapshot = await get(ref(db,'history'));
   res.json(snapshot.val() || []);
