@@ -1,193 +1,238 @@
-import 'dotenv/config';
-import express from 'express';
-import { initializeApp } from 'firebase/app';
-import { getDatabase, ref, update, get, push } from 'firebase/database';
-import { TelegramClient, Api } from 'telegram';
-import { StringSession } from 'telegram/sessions/index.js';
-import path from 'path';
-import { fileURLToPath } from 'url';
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Telegram Export & Auto-Add PRO+++</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;}
+body{font-family:'JetBrains Mono',monospace;background:#0f0f10;color:#fff;margin:0;padding:0;}
+.container{max-width:900px;margin:auto;padding:15px;}
+section{background:#1e1e2a;border-radius:20px;padding:20px;margin-bottom:20px;box-shadow:0 6px 20px rgba(0,0,0,0.6);}
+.card-title{font-size:22px;font-weight:700;margin-bottom:15px;color:#00ff7f;text-align:center;}
+input{width:100%;padding:12px;margin-top:10px;border-radius:12px;border:none;background:#11141f;color:#fff;font-size:15px;outline:none;}
+input:focus{border:1px solid #00ff7f;}
+button{border:none;padding:12px;border-radius:12px;cursor:pointer;font-size:15px;font-weight:600;background:#00ff7f;color:#0f0f10;transition:0.2s;}
+button:hover{background:#00cc66;color:#fff;}
+.btn-group{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:15px;}
+.btn-group button{flex:1;background:#11141f;color:#fff;}
+.btn-group button:hover{background:#00ff7f;color:#0f0f10;}
+.success{color:#00ff7f;font-weight:700;}
+.failed{color:#ff4c4c;font-weight:700;}
+.floodwait{color:#ffcc00;font-weight:700;}
+.avatar{width:28px;height:28px;border-radius:50%;margin-right:8px;}
+ul{list-style:none;padding:0;margin-top:10px;max-height:400px;overflow-y:auto;}
+li{padding:8px;border-bottom:1px solid rgba(255,255,255,0.05);display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap;}
+.table-responsive{overflow-x:auto;}
+table{width:100%;border-collapse:collapse;}
+th,td{padding:10px;border-bottom:1px solid rgba(255,255,255,0.1);}
+th{background:#11141f;color:#00ff7f;}
+.page{display:none;}
+.page.active{display:block;}
+.progress-bar{background:#11141f;height:14px;border-radius:10px;margin-top:10px;}
+.progress{background:#00ff7f;height:14px;width:0%;border-radius:10px;transition:width 0.3s;}
+.spinner{text-align:center;margin-top:10px;}
+#autoAddStatus{margin:10px 0;font-weight:700;color:#00ff7f;text-align:center;}
+.disabled{opacity:0.5;pointer-events:none;}
+</style>
+</head>
+<body>
+<div class="container">
 
-const app = express();
-app.use(express.json());
+<div class="btn-group">
+<button class="nav-btn" data-page="accountsPage">Accounts</button>
+<button class="nav-btn" data-page="membersPage">Auto Add</button>
+<button class="nav-btn" data-page="uploadPage">Upload</button>
+<button class="nav-btn" data-page="historyPage">History</button>
+</div>
 
-// ===== Firebase =====
-const firebaseConfig = {
-  apiKey: process.env.FIREBASE_API_KEY,
-  authDomain: process.env.FIREBASE_AUTH_DOMAIN,
-  databaseURL: process.env.FIREBASE_DB_URL
+<!-- Accounts -->
+<section id="accountsPage" class="page active">
+<div class="card-title">Accounts Status</div>
+<div class="table-responsive">
+<table>
+<thead><tr><th>ID</th><th>Phone</th><th>Status</th><th>FloodWait</th></tr></thead>
+<tbody id="accountsTable"></tbody>
+</table>
+</div>
+</section>
+
+<!-- Auto Add -->
+<section id="membersPage" class="page">
+<div class="card-title">Auto Add Members</div>
+<label for="accountSelect">Select Account (optional):</label>
+<select id="accountSelect"></select>
+<input id="sourceGroupInput" placeholder="Source Group">
+<input id="targetGroupInput" placeholder="Target Group">
+<button id="startAutoAddBtn">Start Auto-Add</button>
+<div id="loading" class="spinner">⏳ Loading Members...</div>
+<div id="autoAddStatus"></div>
+<div id="autoAddCounter">0 / 0</div>
+<div class="progress-bar"><div id="autoAddProgress" class="progress"></div></div>
+<ul id="autoAddList"></ul>
+</section>
+
+<!-- Upload -->
+<section id="uploadPage" class="page">
+<div class="card-title">Upload Accounts</div>
+<input id="phoneInput" placeholder="Phone +855">
+<input id="apiIdInput" placeholder="API ID">
+<input id="apiHashInput" placeholder="API HASH">
+<input id="sessionInput" placeholder="Session String">
+<button id="addAccountBtn">Add Account</button><br><br>
+<input type="file" id="file" accept=".txt">
+<button id="uploadBtn">Upload File</button>
+<div id="uploadStats"></div>
+</section>
+
+<!-- History -->
+<section id="historyPage" class="page">
+<div class="card-title">History</div>
+<ul id="historyList"></ul>
+<button id="downloadHistoryBtn">Download History</button>
+</section>
+
+</div>
+
+<script>
+// Navigation
+document.querySelectorAll(".nav-btn").forEach(btn=>{
+  btn.onclick=()=>{document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
+  document.getElementById(btn.dataset.page).classList.add("active");}
+});
+
+// Accounts Table + FloodWait Countdown
+const accountsTable=document.getElementById("accountsTable");
+async function fetchAccounts(){
+  try{
+    const res = await fetch("/account-status"); if(!res.ok) return;
+    const data = await res.json(); accountsTable.innerHTML="";
+    const now = Date.now();
+    Object.keys(data).forEach(id=>{
+      const acc = data[id];
+      let flood="-"; let disabled=false;
+      if(acc.floodWaitUntil){ 
+        let r=Math.floor((acc.floodWaitUntil-now)/1000);
+        if(r>0){
+          let d=new Date(acc.floodWaitUntil); 
+          flood=`${d.toLocaleDateString()} ${d.toLocaleTimeString()} (${Math.floor(r/60)}m ${r%60}s)`;
+          disabled=true;
+        }else acc.status="active";
+      }
+      accountsTable.innerHTML+=`<tr class="${disabled?'floodwait':''}"><td>${id}</td><td>${acc.phone}</td><td>${acc.status}</td><td>${flood}</td></tr>`;
+    });
+  }catch(e){console.log(e);}
+}
+setInterval(fetchAccounts,1000); fetchAccounts();
+
+// Accounts dropdown
+const accountSelect = document.getElementById("accountSelect");
+async function loadAccountsDropdown(){
+  try{
+    const res = await fetch("/account-status"); if(!res.ok) return; const data = await res.json();
+    const now = Date.now(); accountSelect.innerHTML="";
+    Object.keys(data).forEach(id=>{
+      const acc = data[id]; let disabled=false;
+      if(acc.floodWaitUntil && acc.floodWaitUntil > now) disabled=true;
+      const option=document.createElement("option"); option.value=id;
+      option.text=`${acc.phone} (${acc.status}${disabled?' - FloodWait':''})`; if(disabled) option.disabled=true;
+      accountSelect.appendChild(option);
+    });
+  }catch(e){console.log(e);}
+}
+setInterval(loadAccountsDropdown,1000); loadAccountsDropdown();
+
+// Add Account
+addAccountBtn.onclick=async()=>{
+  const phone=phoneInput.value.trim(), api_id=apiIdInput.value.trim(), api_hash=apiHashInput.value.trim(), session=sessionInput.value.trim();
+  if(!phone||!api_id||!api_hash||!session){alert("All fields required"); return;}
+  const res=await fetch("/add-account",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({phone,api_id,api_hash,session})});
+  const data = await res.json(); uploadStats.innerText=data.success?"Added":"Failed";
 };
-initializeApp(firebaseConfig);
-const db = getDatabase();
+uploadBtn.onclick=async()=>{
+  const file=document.getElementById("file").files[0]; if(!file)return alert("Select file");
+  const txt=await file.text();
+  const res=await fetch("/upload-accounts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({accounts:txt})});
+  const data = await res.json(); uploadStats.innerText=data.success?"Uploaded":"Failed";
+};
 
-// ===== Load Accounts =====
-const accounts = [];
-let i = 1;
-while (process.env[`TG_ACCOUNT_${i}_PHONE`]) {
-  accounts.push({
-    phone: process.env[`TG_ACCOUNT_${i}_PHONE`],
-    api_id: Number(process.env[`TG_ACCOUNT_${i}_API_ID`]),
-    api_hash: process.env[`TG_ACCOUNT_${i}_API_HASH`],
-    session: process.env[`TG_ACCOUNT_${i}_SESSION`],
-    id: `TG_ACCOUNT_${i}`
-  });
-  i++;
-}
+// Auto Add Members with FloodWait and switch logic
+const autoAddList=document.getElementById("autoAddList"), counter=document.getElementById("autoAddCounter"), progress=document.getElementById("autoAddProgress"), autoAddStatus=document.getElementById("autoAddStatus"), loading=document.getElementById("loading");
 
-// ===== Check Telegram Account =====
-async function checkTGAccount(account){
-  try{
-    const client = new TelegramClient(new StringSession(account.session), account.api_id, account.api_hash, { connectionRetries:5 });
-    await client.start({});
-    await client.getMe();
-    await update(ref(db, `accounts/${account.id}`), {
-      status:"active",
-      phone:account.phone,
-      lastChecked:Date.now(),
-      floodWaitUntil:null
-    });
-    await client.disconnect();
-  }catch(err){
-    let status="error", floodUntil=null;
-    if(err.message.includes("FLOOD_WAIT")){
-      status="floodwait";
-      const m = err.message.match(/FLOOD_WAIT_(\d+)/);
-      if(m) floodUntil = Date.now() + Number(m[1])*1000;
+startAutoAddBtn.onclick=async()=>{
+  const source=sourceGroupInput.value.trim(), target=targetGroupInput.value.trim();
+  if(!source||!target) return alert("Enter groups");
+  loading.style.display="block";
+  const res=await fetch("/members",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({group:source})});
+  const members=await res.json(); loading.style.display="none";
+  const accRes=await fetch("/account-status"); const accData=await accRes.json();
+  const accounts=Object.keys(accData); let accIndex=0; let processed=0; autoAddList.innerHTML="";
+
+  function getNextAvailableAccount(startIndex){
+    const now=Date.now();
+    for(let i=0;i<accounts.length;i++){
+      let idx=(startIndex+i)%accounts.length;
+      const acc=accData[accounts[idx]];
+      if(!acc.floodWaitUntil || acc.floodWaitUntil<=now) return idx;
     }
-    await update(ref(db, `accounts/${account.id}`),{
-      status, phone:account.phone, error:err.message, lastChecked:Date.now(), floodWaitUntil:floodUntil
-    });
+    return -1;
   }
-}
 
-// ===== Auto Check =====
-async function autoCheck(){
-  for(const acc of accounts){
-    await checkTGAccount(acc);
+  const floodInterval=setInterval(()=>{
+    const now=Date.now();
+    let anyAvailable=false;
+    Object.keys(accData).forEach(id=>{
+      const acc=accData[id];
+      if(acc.floodWaitUntil && acc.floodWaitUntil>now){
+        let r=Math.floor((acc.floodWaitUntil-now)/1000);
+        let d=new Date(acc.floodWaitUntil);
+        floodTimers[id]=`${d.toLocaleDateString()} ${d.toLocaleTimeString()} (${Math.floor(r/60)}m ${r%60}s)`;
+      }else floodTimers[id]=null;
+    });
+    const nextAccIdx=getNextAvailableAccount(accIndex);
+    if(nextAccIdx===-1){
+      autoAddStatus.innerText="All accounts in FloodWait. Stopping Auto-Add ⛔";
+      clearInterval(floodInterval); return;
+    }else{
+      let currentAcc=accounts[nextAccIdx];
+      if(floodTimers[currentAcc]) autoAddStatus.innerText=`Next account ${currentAcc} blocked until ${floodTimers[currentAcc]}`;
+    }
+  },1000);
+
+  for(const m of members){
+    let nextAccIdx=getNextAvailableAccount(accIndex);
+    if(nextAccIdx===-1){ autoAddStatus.innerText="All accounts in FloodWait. Stopping Auto-Add ⛔"; break; }
+    accIndex=nextAccIdx;
+    const currentAccount=accounts[accIndex];
+    const addRes=await fetch("/add-member",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:m.username,user_id:m.user_id,targetGroup:target,accountId:currentAccount})});
+    const result=await addRes.json();
+    const li=document.createElement("li");
+    li.innerHTML=`<img class="avatar" src="${m.avatar}"> ${m.username||m.user_id} → <span style="color:${result.status==='success'?'#00ff7f':result.status==='failed_not_joined'?'#ffcc00':'#ff4c4c'}">${result.status}</span> by ${result.accountUsed}<br><span style="color:#ffcc00;font-size:12px;">Reason: ${result.reason||'N/A'}</span>`;
+    autoAddList.appendChild(li); autoAddList.scrollTop=autoAddList.scrollHeight;
+    processed++; counter.innerText=`${processed} / ${members.length}`;
+    progress.style.width=`${Math.floor((processed/members.length)*100)}%`;
+    if(result.status==="success") accIndex=(accIndex+1)%accounts.length;
   }
-}
-setInterval(autoCheck,60000);
-autoCheck();
-
-// ===== API Routes =====
-
-// Get all accounts
-app.get('/account-status', async (req,res)=>{
-  const snap = await get(ref(db,'accounts'));
-  res.json(snap.val() || {});
-});
-
-// Add single account
-app.post('/add-account', async(req,res)=>{
-  try{
-    const { phone, api_id, api_hash, session } = req.body;
-    const id = `TG_ACCOUNT_${accounts.length+1}`;
-    accounts.push({ phone, api_id:Number(api_id), api_hash, session, id });
-    await update(ref(db, `accounts/${id}`), {
-      phone, api_id:Number(api_id), api_hash, session,
-      status:"pending", lastChecked:null, floodWaitUntil:null
-    });
-    res.json({ success:true, id });
-  }catch(err){ res.json({ success:false, error:err.message }); }
-});
-
-// Upload multiple accounts
-app.post('/upload-accounts', async(req,res)=>{
-  try{
-    const { accounts:txt } = req.body;
-    const lines = txt.split(/\r?\n/).filter(l=>l.trim());
-    for(const line of lines){
-      const [phone, api_id, api_hash, session] = line.split(",");
-      if(!phone||!api_id||!api_hash||!session) continue;
-      const id = `TG_ACCOUNT_${accounts.length+1}`;
-      accounts.push({ phone, api_id:Number(api_id), api_hash, session, id });
-      await update(ref(db, `accounts/${id}`),{
-        phone, api_id:Number(api_id), api_hash, session,
-        status:"pending", lastChecked:null, floodWaitUntil:null
-      });
-    }
-    res.json({ success:true });
-  }catch(err){ res.json({ success:false, error:err.message }); }
-});
-
-// Fetch Members
-app.post('/members', async(req,res)=>{
-  try{
-    const { group } = req.body;
-    const acc = accounts[0]; // first account
-    const client = new TelegramClient(new StringSession(acc.session), acc.api_id, acc.api_hash, {connectionRetries:5});
-    await client.start({});
-    const entity = await client.getEntity(group);
-    const participants = await client.getParticipants(entity,{limit:2000});
-    const members = participants.map(p=>({ user_id:p.id, username:p.username, avatar:`https://t.me/i/userpic/320/${p.id}.jpg` }));
-    await client.disconnect();
-    res.json(members);
-  }catch(err){ res.status(500).json({ error:err.message }); }
-});
-
-// Add Member with verification & reason
-let accountIndex = 0;
-app.post('/add-member', async(req,res)=>{
-  try{
-    const { username, user_id, targetGroup, accountId } = req.body;
-    const acc = accounts.find(a=>a.id===accountId) || accounts[accountIndex % accounts.length];
-
-    const client = new TelegramClient(new StringSession(acc.session), acc.api_id, acc.api_hash, {connectionRetries:5});
-    await client.start({});
-    const group = await client.getEntity(targetGroup);
-    let user = username ? await client.getEntity(username) : await client.getEntity(user_id);
-
-    let status="failed_not_joined", reason="unknown";
-    try{
-      await client.invoke(new Api.channels.InviteToChannel({ channel: group, users: [user] }));
-
-      // Verify participant really joined
-      const participants = await client.getParticipants(group);
-      if(participants.some(p=>p.id===user.id)){
-        status="success";
-        reason="Member joined";
-      } else {
-        status="failed_not_joined";
-        reason="Invite sent but member did not join (privacy, blocked, or left)";
-      }
-
-    } catch(errAdd){
-      if(errAdd.message.includes("FLOOD_WAIT")){
-        const m = errAdd.message.match(/FLOOD_WAIT_(\d+)/);
-        if(m){
-          const floodUntil = Date.now() + Number(m[1])*1000;
-          await update(ref(db,`accounts/${acc.id}`),{ status:"floodwait", floodWaitUntil:floodUntil });
-        }
-        status="failed";
-        reason=`Flood Wait ${errAdd.message}`;
-      } else {
-        status="failed";
-        reason=errAdd.message;
-      }
-    }
-
-    await push(ref(db,'history'),{
-      username, user_id, status, reason, accountUsed:acc.id, timestamp:Date.now()
-    });
-
-    await client.disconnect();
-    if(status==="success") accountIndex = (accountIndex +1) % accounts.length;
-
-    res.json({ status, reason, accountUsed:acc.id });
-
-  }catch(err){ res.status(500).json({ status:"failed", reason:err.message }); }
-});
+  clearInterval(floodInterval);
+  autoAddStatus.innerText="Auto Add Finished!";
+  alert("Auto Add Finished");
+};
 
 // History
-app.get('/history', async(req,res)=>{
-  const snap = await get(ref(db,'history'));
-  res.json(snap.val() || {});
-});
-
-// Serve frontend
-const __filename=fileURLToPath(import.meta.url);
-const __dirname=path.dirname(__filename);
-app.get('/', (req,res) => res.sendFile(path.join(__dirname,'index.html')));
-
-// Start server
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, ()=> console.log(`🚀 Server running on port ${PORT}`));
+const historyList=document.getElementById("historyList");
+async function fetchHistory(){
+  const res=await fetch("/history"); const data=await res.json(); historyList.innerHTML="";
+  Object.values(data).forEach(h=>{
+    historyList.innerHTML+=`<li class="${h.status==="success"?"success":"failed"}">${h.username||h.user_id} → ${h.status} by ${h.accountUsed || 'N/A'} <br><span style="color:#ffcc00;font-size:12px;">Reason: ${h.reason || 'N/A'}</span></li>`;
+  });
+}
+setInterval(fetchHistory,6000); fetchHistory();
+downloadHistoryBtn.onclick=async()=>{
+  const res=await fetch("/history"); const data=await res.json();
+  const blob=new Blob([JSON.stringify(data,null,2)]); const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob); a.download="history.json"; a.click();
+};
+</script>
+</body>
+</html>
