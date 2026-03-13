@@ -24,7 +24,6 @@ const db = getDatabase();
 /* ================= LOAD ACCOUNTS ================= */
 
 const accounts = [];
-
 let i = 1;
 
 while (process.env[`TG_ACCOUNT_${i}_PHONE`]) {
@@ -94,106 +93,19 @@ async function checkTGAccount(account){
 async function autoCheck(){
 
   for(const acc of accounts){
-
     await checkTGAccount(acc);
-
   }
+
 }
 
 setInterval(autoCheck,60000);
 autoCheck();
 
-/* ================= API ================= */
+/* ================= ACCOUNT STATUS ================= */
 
 app.get('/account-status', async(req,res)=>{
   const snap = await get(ref(db,'accounts'));
   res.json(snap.val() || {});
-});
-
-/* ================= ADD ACCOUNT ================= */
-
-app.post('/add-account', async(req,res)=>{
-
-  try{
-
-    const { phone, api_id, api_hash, session } = req.body;
-
-    const id = `TG_ACCOUNT_${accounts.length+1}`;
-
-    accounts.push({
-      phone,
-      api_id:Number(api_id),
-      api_hash,
-      session,
-      id
-    });
-
-    await update(ref(db,`accounts/${id}`),{
-      phone,
-      api_id:Number(api_id),
-      api_hash,
-      session,
-      status:"pending",
-      lastChecked:null,
-      floodWaitUntil:null
-    });
-
-    res.json({ success:true,id });
-
-  }catch(err){
-
-    res.json({ success:false,error:err.message });
-
-  }
-
-});
-
-/* ================= UPLOAD ACCOUNTS ================= */
-
-app.post('/upload-accounts', async(req,res)=>{
-
-  try{
-
-    const { accounts:txt } = req.body;
-
-    const lines = txt.split(/\r?\n/).filter(l=>l.trim());
-
-    for(const line of lines){
-
-      const [phone, api_id, api_hash, session] = line.split(",");
-
-      if(!phone || !api_id || !api_hash || !session) continue;
-
-      const id = `TG_ACCOUNT_${accounts.length+1}`;
-
-      accounts.push({
-        phone,
-        api_id:Number(api_id),
-        api_hash,
-        session,
-        id
-      });
-
-      await update(ref(db,`accounts/${id}`),{
-        phone,
-        api_id:Number(api_id),
-        api_hash,
-        session,
-        status:"pending",
-        lastChecked:null,
-        floodWaitUntil:null
-      });
-
-    }
-
-    res.json({ success:true });
-
-  }catch(err){
-
-    res.json({ success:false,error:err.message });
-
-  }
-
 });
 
 /* ================= FETCH MEMBERS ================= */
@@ -220,9 +132,12 @@ app.post('/members', async(req,res)=>{
     const participants = await client.getParticipants(entity,{limit:2000});
 
     const members = participants.map(p=>({
+
       user_id:p.id,
+      access_hash:p.accessHash,
       username:p.username,
       avatar:`https://t.me/i/userpic/320/${p.id}.jpg`
+
     }));
 
     await client.disconnect();
@@ -245,7 +160,7 @@ app.post('/add-member', async(req,res)=>{
 
   try{
 
-    const { username, user_id, targetGroup } = req.body;
+    const { username, user_id, access_hash, targetGroup } = req.body;
 
     const acc = accounts[accountIndex % accounts.length];
 
@@ -260,9 +175,24 @@ app.post('/add-member', async(req,res)=>{
 
     const group = await client.getEntity(targetGroup);
 
-    const user = username
-      ? await client.getEntity(username)
-      : await client.getEntity(user_id);
+    let user;
+
+    /* ===== SUPPORT ID + ACCESS HASH ===== */
+
+    if(access_hash){
+
+      user = new Api.InputUser({
+        userId: user_id,
+        accessHash: access_hash
+      });
+
+    }else{
+
+      user = username
+        ? await client.getEntity(username)
+        : await client.getEntity(user_id);
+
+    }
 
     /* ===== CHECK MEMBER EXIST ===== */
 
@@ -278,7 +208,7 @@ app.post('/add-member', async(req,res)=>{
       await push(ref(db,'history'),{
         username,
         user_id,
-        status:"skipped",
+        status:"skipped (already_in_group)",
         reason:"already_in_group",
         accountUsed:acc.id,
         timestamp:Date.now()
@@ -287,12 +217,12 @@ app.post('/add-member', async(req,res)=>{
       await client.disconnect();
 
       return res.json({
-        status:"skipped",
+        status:"skipped (already_in_group)",
         accountUsed:acc.id
       });
 
     }catch(e){
-      // not in group → continue
+      // not member → continue
     }
 
     /* ===== ADD MEMBER ===== */
