@@ -87,7 +87,9 @@ app.post('/add-account', async(req,res)=>{
       status:"pending", lastChecked:null, floodWaitUntil:null
     });
     res.json({ success:true, id });
-  }catch(err){ res.json({ success:false, error:err.message }); }
+  }catch(err){
+    res.json({ success:false, error:err.message });
+  }
 });
 
 // Upload multiple accounts
@@ -113,7 +115,7 @@ app.post('/upload-accounts', async(req,res)=>{
 app.post('/members', async(req,res)=>{
   try{
     const { group } = req.body;
-    const acc = accounts[0]; // first account
+    const acc = accounts[0];
     const client = new TelegramClient(new StringSession(acc.session), acc.api_id, acc.api_hash, {connectionRetries:5});
     await client.start({});
     const entity = await client.getEntity(group);
@@ -124,57 +126,40 @@ app.post('/members', async(req,res)=>{
   }catch(err){ res.status(500).json({ error:err.message }); }
 });
 
-// Add Member with verification & reason
+// Add Member (PRO with joined verification + FloodWait)
 let accountIndex = 0;
 app.post('/add-member', async(req,res)=>{
   try{
     const { username, user_id, targetGroup, accountId } = req.body;
-    const acc = accounts.find(a=>a.id===accountId) || accounts[accountIndex % accounts.length];
-
+    let acc = accountId ? accounts.find(a=>a.id===accountId) : accounts[accountIndex % accounts.length];
     const client = new TelegramClient(new StringSession(acc.session), acc.api_id, acc.api_hash, {connectionRetries:5});
     await client.start({});
     const group = await client.getEntity(targetGroup);
     let user = username ? await client.getEntity(username) : await client.getEntity(user_id);
+    let status="failed_not_joined", reason="Unknown";
 
-    let status="failed_not_joined", reason="unknown";
     try{
       await client.invoke(new Api.channels.InviteToChannel({ channel: group, users: [user] }));
-
-      // Verify participant really joined
+      // Verify if user really joined
       const participants = await client.getParticipants(group);
-      if(participants.some(p=>p.id===user.id)){
-        status="success";
-        reason="Member joined";
-      } else {
-        status="failed_not_joined";
-        reason="Invite sent but member did not join (privacy, blocked, or left)";
-      }
-
-    } catch(errAdd){
+      const joined = participants.find(p=>p.id===user.id);
+      if(joined){ status="success"; reason="Joined"; } else { status="failed_not_joined"; reason="Invite sent but not joined"; }
+    }catch(errAdd){
+      reason = errAdd.message;
       if(errAdd.message.includes("FLOOD_WAIT")){
         const m = errAdd.message.match(/FLOOD_WAIT_(\d+)/);
         if(m){
           const floodUntil = Date.now() + Number(m[1])*1000;
           await update(ref(db,`accounts/${acc.id}`),{ status:"floodwait", floodWaitUntil:floodUntil });
         }
-        status="failed";
-        reason=`Flood Wait ${errAdd.message}`;
-      } else {
-        status="failed";
-        reason=errAdd.message;
       }
     }
-
-    await push(ref(db,'history'),{
-      username, user_id, status, reason, accountUsed:acc.id, timestamp:Date.now()
-    });
-
+    await push(ref(db,'history'),{ username, user_id, status, accountUsed:acc.id, reason, timestamp:Date.now() });
     await client.disconnect();
-    if(status==="success") accountIndex = (accountIndex +1) % accounts.length;
-
-    res.json({ status, reason, accountUsed:acc.id });
-
-  }catch(err){ res.status(500).json({ status:"failed", reason:err.message }); }
+    // Rotate account only if success
+    if(status==="success") accountIndex = (accountIndex+1)%accounts.length;
+    res.json({ status, accountUsed:acc.id, reason });
+  }catch(err){ res.status(500).json({ error:err.message }); }
 });
 
 // History
