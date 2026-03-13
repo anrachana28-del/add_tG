@@ -21,23 +21,22 @@ const firebaseConfig = {
 initializeApp(firebaseConfig);
 const db = getDatabase();
 
-/* ================= LOAD ACCOUNTS ================= */
+/* ================= LOAD TELEGRAM ACCOUNTS ================= */
 
 const accounts = [];
 let i = 1;
 
-while (process.env[`TG_ACCOUNT_${i}_PHONE`]) {
+while(process.env[`TG_ACCOUNT_${i}_PHONE`]){
 
   accounts.push({
     phone: process.env[`TG_ACCOUNT_${i}_PHONE`],
     api_id: Number(process.env[`TG_ACCOUNT_${i}_API_ID`]),
     api_hash: process.env[`TG_ACCOUNT_${i}_API_HASH`],
     session: process.env[`TG_ACCOUNT_${i}_SESSION`],
-    id: `TG_ACCOUNT_${i}`
+    id:`TG_ACCOUNT_${i}`
   });
 
   i++;
-
 }
 
 /* ================= CHECK TELEGRAM ACCOUNT ================= */
@@ -79,7 +78,6 @@ async function checkTGAccount(account){
       if(m){
         floodUntil = Date.now() + Number(m[1])*1000;
       }
-
     }
 
     await update(ref(db,`accounts/${account.id}`),{
@@ -94,7 +92,7 @@ async function checkTGAccount(account){
 
 }
 
-/* ================= AUTO CHECK ================= */
+/* ================= AUTO ACCOUNT CHECK ================= */
 
 async function autoCheck(){
 
@@ -114,7 +112,7 @@ app.get('/account-status', async(req,res)=>{
   res.json(snap.val() || {});
 });
 
-/* ================= FETCH MEMBERS ================= */
+/* ================= EXPORT MEMBERS ================= */
 
 app.post('/members', async(req,res)=>{
 
@@ -156,7 +154,7 @@ app.post('/members', async(req,res)=>{
 
 });
 
-/* ================= ADD MEMBER ================= */
+/* ================= ADD MEMBER SYSTEM ================= */
 
 let accountIndex = 0;
 
@@ -181,7 +179,7 @@ app.post('/add-member', async(req,res)=>{
 
     let user;
 
-    /* ===== CREATE USER ENTITY ===== */
+    /* ===== CREATE USER ===== */
 
     if(access_hash){
 
@@ -198,7 +196,7 @@ app.post('/add-member', async(req,res)=>{
 
     }
 
-    /* ===== CHECK IF ALREADY MEMBER ===== */
+    /* ===== CHECK IF MEMBER ===== */
 
     try{
 
@@ -222,25 +220,51 @@ app.post('/add-member', async(req,res)=>{
 
       return res.json({
         status:"skipped",
+        reason:"already_in_group",
         accountUsed:acc.id
       });
 
     }catch(e){
-      // not member → continue
+      // continue invite
     }
 
-    /* ===== INVITE USER ===== */
+    /* ===== INVITE MEMBER ===== */
 
-    await client.invoke(
-      new Api.channels.InviteToChannel({
-        channel:group,
-        users:[user]
-      })
-    );
+    try{
+
+      await client.invoke(
+        new Api.channels.InviteToChannel({
+          channel:group,
+          users:[user]
+        })
+      );
+
+    }catch(inviteError){
+
+      const reason = inviteError.message;
+
+      await push(ref(db,'history'),{
+        username,
+        user_id,
+        status:"failed",
+        reason,
+        accountUsed:acc.id,
+        timestamp:Date.now()
+      });
+
+      await client.disconnect();
+
+      return res.json({
+        status:"failed",
+        reason,
+        accountUsed:acc.id
+      });
+
+    }
 
     /* ===== VERIFY JOIN ===== */
 
-    let joined = false;
+    let joined=false;
 
     try{
 
@@ -251,12 +275,10 @@ app.post('/add-member', async(req,res)=>{
         })
       );
 
-      joined = true;
+      joined=true;
 
     }catch(e){
-
-      joined = false;
-
+      joined=false;
     }
 
     if(joined){
@@ -284,6 +306,7 @@ app.post('/add-member', async(req,res)=>{
         username,
         user_id,
         status:"failed_not_joined",
+        reason:"invite_sent_but_not_joined",
         accountUsed:acc.id,
         timestamp:Date.now()
       });
@@ -299,6 +322,12 @@ app.post('/add-member', async(req,res)=>{
 
   }catch(err){
 
+    await push(ref(db,'history'),{
+      status:"error",
+      reason:err.message,
+      timestamp:Date.now()
+    });
+
     res.status(500).json({ error:err.message });
 
   }
@@ -312,19 +341,19 @@ app.get('/history', async(req,res)=>{
   res.json(snap.val() || {});
 });
 
-/* ================= SERVE FRONTEND ================= */
+/* ================= FRONTEND ================= */
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-app.get('/', (req,res)=>{
+app.get('/',(req,res)=>{
   res.sendFile(path.join(__dirname,'index.html'));
 });
 
-/* ================= START SERVER ================= */
+/* ================= SERVER ================= */
 
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT,()=>{
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log("🚀 Telegram Add Member Server Running:",PORT);
 });
