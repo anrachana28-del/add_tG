@@ -28,7 +28,9 @@ while (process.env[`TG_ACCOUNT_${i}_PHONE`]) {
     api_id: Number(process.env[`TG_ACCOUNT_${i}_API_ID`]),
     api_hash: process.env[`TG_ACCOUNT_${i}_API_HASH`],
     session: process.env[`TG_ACCOUNT_${i}_SESSION`],
-    id: `TG_ACCOUNT_${i}`
+    id: `TG_ACCOUNT_${i}`,
+    status: 'pending',
+    floodWaitUntil: null
   });
   i++;
 }
@@ -87,9 +89,7 @@ app.post('/add-account', async(req,res)=>{
       status:"pending", lastChecked:null, floodWaitUntil:null
     });
     res.json({ success:true, id });
-  }catch(err){
-    res.json({ success:false, error:err.message });
-  }
+  }catch(err){ res.json({ success:false, error:err.message }); }
 });
 
 // Upload multiple accounts
@@ -126,38 +126,76 @@ app.post('/members', async(req,res)=>{
   }catch(err){ res.status(500).json({ error:err.message }); }
 });
 
-// Add Member (PRO with joined verification + FloodWait)
+// Add Member with rotation, FloodWait handling & verification
 let accountIndex = 0;
 app.post('/add-member', async(req,res)=>{
   try{
     const { username, user_id, targetGroup, accountId } = req.body;
-    let acc = accountId ? accounts.find(a=>a.id===accountId) : accounts[accountIndex % accounts.length];
+    const now = Date.now();
+
+    // Filter accounts that are not in FloodWait
+    let activeAccounts = accounts.filter(a=>!a.floodWaitUntil || a.floodWaitUntil < now);
+    if(activeAccounts.length===0){
+      return res.json({ status:"all_floodwait", reason:"All accounts in FloodWait" });
+    }
+
+    let acc;
+    if(accountId){
+      acc = accounts.find(a=>a.id===accountId);
+    } else {
+      acc = activeAccounts[accountIndex % activeAccounts.length];
+      accountIndex++;
+    }
+
     const client = new TelegramClient(new StringSession(acc.session), acc.api_id, acc.api_hash, {connectionRetries:5});
     await client.start({});
+
     const group = await client.getEntity(targetGroup);
     let user = username ? await client.getEntity(username) : await client.getEntity(user_id);
-    let status="failed_not_joined", reason="Unknown";
+
+    let status = "failed_not_joined", reason="unknown";
 
     try{
       await client.invoke(new Api.channels.InviteToChannel({ channel: group, users: [user] }));
-      // Verify if user really joined
+
+      // Verify if actually joined
       const participants = await client.getParticipants(group);
-      const joined = participants.find(p=>p.id===user.id);
-      if(joined){ status="success"; reason="Joined"; } else { status="failed_not_joined"; reason="Invite sent but not joined"; }
+      const joined = participants.some(p => p.id===user.id);
+
+      if(joined){
+        status="success";
+        reason="joined";
+      } else {
+        status="failed_not_joined";
+        reason="User did not join";
+      }
+
     }catch(errAdd){
-      reason = errAdd.message;
       if(errAdd.message.includes("FLOOD_WAIT")){
         const m = errAdd.message.match(/FLOOD_WAIT_(\d+)/);
         if(m){
-          const floodUntil = Date.now() + Number(m[1])*1000;
-          await update(ref(db,`accounts/${acc.id}`),{ status:"floodwait", floodWaitUntil:floodUntil });
+          const waitSeconds = Number(m[1]);
+          const floodUntil = Date.now() + waitSeconds*1000;
+          const floodDate = new Date(floodUntil);
+          const options = { weekday: 'short', year:'numeric', month:'short', day:'numeric',
+                            hour:'numeric', minute:'numeric', second:'numeric', hour12:true };
+          const floodDateStr = floodDate.toLocaleString('en-US', options);
+
+          await update(ref(db,`accounts/${acc.id}`),{
+            status:"floodwait",
+            floodWaitUntil:floodUntil,
+            floodWaitDate: floodDateStr
+          });
+          status="failed";
+          reason = `FloodWait until ${floodDateStr}`;
         }
+      } else {
+        reason = errAdd.message;
       }
     }
+
     await push(ref(db,'history'),{ username, user_id, status, accountUsed:acc.id, reason, timestamp:Date.now() });
     await client.disconnect();
-    // Rotate account only if success
-    if(status==="success") accountIndex = (accountIndex+1)%accounts.length;
     res.json({ status, accountUsed:acc.id, reason });
   }catch(err){ res.status(500).json({ error:err.message }); }
 });
