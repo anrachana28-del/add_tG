@@ -1,88 +1,173 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+
 <meta charset="UTF-8">
-<title>Telegram Export Tool PRO</title>
+<title>Telegram Auto Add PRO</title>
+
 <meta name="viewport" content="width=device-width,initial-scale=1">
+
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono&display=swap" rel="stylesheet">
 
 <style>
 
+*{box-sizing:border-box}
+
 body{
-font-family:Arial;
-background:#0f172a;
-color:white;
 margin:0;
+background:#0f172a;
+color:#fff;
+font-family:'JetBrains Mono',monospace;
+}
+
+.container{
+max-width:900px;
+margin:auto;
+padding:15px;
 }
 
 header{
-background:#020617;
-padding:15px;
-font-size:20px;
-font-weight:bold;
+text-align:center;
+font-size:22px;
+font-weight:700;
+margin-bottom:15px;
+color:#22c55e;
 }
 
-nav{
-display:flex;
-gap:10px;
+.nav{
+display:grid;
+grid-template-columns:repeat(4,1fr);
+gap:6px;
+margin-bottom:15px;
+}
+
+.nav button{
 padding:10px;
-background:#111827;
-}
-
-button{
-padding:10px 15px;
 border:none;
-border-radius:6px;
-cursor:pointer;
-}
-
-.nav-btn{
-background:#1f2937;
+border-radius:8px;
+background:#1e293b;
 color:white;
+font-size:13px;
 }
 
-.page{
-display:none;
-padding:20px;
+.nav button:hover{
+background:#22c55e;
 }
 
-.active{
-display:block;
+.card{
+background:#1e293b;
+border-radius:14px;
+padding:16px;
+margin-bottom:15px;
+box-shadow:0 8px 20px rgba(0,0,0,0.5);
+}
+
+.card-title{
+font-size:18px;
+margin-bottom:12px;
+color:#22c55e;
 }
 
 input{
-padding:10px;
 width:100%;
+padding:11px;
 margin-bottom:10px;
-border-radius:6px;
 border:none;
+border-radius:8px;
+background:#111827;
+color:white;
+}
+
+button.primary{
+background:#22c55e;
+color:#fff;
+width:100%;
+padding:11px;
+border:none;
+border-radius:8px;
+}
+
+button.primary:hover{
+background:#16a34a;
+}
+
+.table-responsive{
+overflow-x:auto;
 }
 
 table{
 width:100%;
 border-collapse:collapse;
-margin-top:10px;
+font-size:13px;
 }
 
-td,th{
-border:1px solid #334155;
+th,td{
 padding:8px;
-text-align:left;
+border-bottom:1px solid rgba(255,255,255,0.1);
 }
+
+th{
+background:#374151;
+}
+
+.page{display:none}
+.page.active{display:block}
 
 .success{color:#22c55e}
-.failed{color:#ef4444}
+.failed{color:#f43f5e}
 
-.progress{
-height:8px;
-background:#1e293b;
-border-radius:5px;
-margin-top:10px;
+ul{
+list-style:none;
+padding:0;
+max-height:300px;
+overflow:auto;
+}
+
+li{
+padding:6px;
+border-bottom:1px solid rgba(255,255,255,0.05);
+display:flex;
+align-items:center;
+}
+
+.avatar{
+width:26px;
+height:26px;
+border-radius:50%;
+margin-right:6px;
 }
 
 .progress-bar{
-height:100%;
+height:12px;
+background:#111827;
+border-radius:8px;
+margin-top:6px;
+}
+
+.progress{
+height:12px;
 background:#22c55e;
 width:0%;
+border-radius:8px;
+}
+
+.spinner{
+display:none;
+text-align:center;
+padding:10px;
+}
+
+@media(max-width:600px){
+
+header{
+font-size:18px;
+}
+
+.nav button{
+font-size:11px;
+padding:8px;
+}
+
 }
 
 </style>
@@ -91,80 +176,133 @@ width:0%;
 
 <body>
 
-<header>Telegram Automation Panel</header>
+<div class="container">
 
-<nav>
-<button class="nav-btn" data-page="accounts">Accounts</button>
-<button class="nav-btn" data-page="autoadd">Auto Add</button>
-<button class="nav-btn" data-page="history">History</button>
-</nav>
+<header>🚀 Telegram Auto Add PRO</header>
 
-<!-- ACCOUNTS PAGE -->
-<div id="accounts" class="page active">
+<div class="nav">
+<button class="nav-btn" data-page="accountsPage">Accounts</button>
+<button class="nav-btn" data-page="addPage">Auto Add</button>
+<button class="nav-btn" data-page="uploadPage">Upload</button>
+<button class="nav-btn" data-page="historyPage">History</button>
+</div>
 
-<h3>Add Account</h3>
 
-<input id="phoneInput" placeholder="Phone">
-<input id="apiIdInput" placeholder="API ID">
-<input id="apiHashInput" placeholder="API HASH">
-<input id="sessionInput" placeholder="String Session">
+<!-- ACCOUNTS -->
 
-<button id="addAccountBtn">Add Account</button>
+<div id="accountsPage" class="page active">
 
-<h3>Accounts Status</h3>
+<div class="card">
+
+<div class="card-title">Accounts Status</div>
+
+<div class="table-responsive">
 
 <table>
+
 <thead>
+
 <tr>
 <th>ID</th>
 <th>Phone</th>
 <th>Status</th>
-<th>FloodWait</th>
+<th>Flood</th>
 </tr>
+
 </thead>
 
 <tbody id="accountsTable"></tbody>
+
 </table>
 
 </div>
 
-
-<!-- AUTO ADD PAGE -->
-
-<div id="autoadd" class="page">
-
-<h3>Auto Add Members</h3>
-
-<input id="sourceGroupInput" placeholder="Source Group Link">
-<input id="targetGroupInput" placeholder="Target Group Link">
-
-<button id="startAutoAddBtn">Start Auto Add</button>
-
-<div id="loading" style="display:none">Loading members...</div>
-
-<div class="progress">
-<div id="autoAddProgress" class="progress-bar"></div>
 </div>
 
-<div id="autoAddCounter"></div>
+</div>
+
+
+<!-- AUTO ADD -->
+
+<div id="addPage" class="page">
+
+<div class="card">
+
+<div class="card-title">Auto Add Members</div>
+
+<input id="sourceGroupInput" placeholder="Source Group">
+
+<input id="targetGroupInput" placeholder="Target Group">
+
+<button class="primary" id="startAutoAddBtn">Start Auto Add</button>
+
+<div id="loading" class="spinner">⏳ Loading Members...</div>
+
+<div id="autoAddCounter">0 / 0</div>
+
+<div class="progress-bar">
+<div id="autoAddProgress" class="progress"></div>
+</div>
 
 <ul id="autoAddList"></ul>
+
+</div>
+
+</div>
+
+
+<!-- UPLOAD -->
+
+<div id="uploadPage" class="page">
+
+<div class="card">
+
+<div class="card-title">Add Account</div>
+
+<input id="phoneInput" placeholder="Phone">
+
+<input id="apiIdInput" placeholder="API ID">
+
+<input id="apiHashInput" placeholder="API HASH">
+
+<input id="sessionInput" placeholder="Session String">
+
+<button class="primary" id="addAccountBtn">Add Account</button>
+
+</div>
+
+<div class="card">
+
+<div class="card-title">Upload Accounts File</div>
+
+<input type="file" id="file">
+
+<button class="primary" id="uploadBtn">Upload File</button>
+
+<div id="uploadStats"></div>
+
+</div>
 
 </div>
 
 
 <!-- HISTORY -->
 
-<div id="history" class="page">
+<div id="historyPage" class="page">
 
-<h3>History</h3>
+<div class="card">
 
-<button id="downloadHistoryBtn">Download JSON</button>
+<div class="card-title">History</div>
 
 <ul id="historyList"></ul>
 
+<button class="primary" id="downloadHistoryBtn">Download History</button>
+
 </div>
 
+</div>
+
+</div>
 
 
 <script>
@@ -172,7 +310,7 @@ width:0%;
 const API_BASE="https://add-tg-2.onrender.com"
 
 
-// Navigation
+// navigation
 
 document.querySelectorAll(".nav-btn").forEach(btn=>{
 btn.onclick=()=>{
@@ -182,15 +320,13 @@ document.getElementById(btn.dataset.page).classList.add("active")
 })
 
 
-// Fetch Accounts
+// accounts
 
 async function fetchAccounts(){
 
 try{
 
 const res=await fetch(API_BASE+"/account-status")
-
-if(!res.ok)return
 
 const data=await res.json()
 
@@ -200,34 +336,18 @@ Object.keys(data).forEach(id=>{
 
 const acc=data[id]
 
-let flood="-"
-
-if(acc.floodWaitUntil){
-
-let r=Math.floor((acc.floodWaitUntil-Date.now())/1000)
-
-if(r>0){
-flood=Math.floor(r/60)+"m "+(r%60)+"s"
-}
-
-}
-
 accountsTable.innerHTML+=`
 <tr>
 <td>${id}</td>
 <td>${acc.phone}</td>
 <td>${acc.status}</td>
-<td>${flood}</td>
+<td>${acc.floodWaitUntil||"-"}</td>
 </tr>
 `
 
 })
 
-}catch(e){
-
-console.log("Account error",e)
-
-}
+}catch(e){}
 
 }
 
@@ -235,24 +355,14 @@ setInterval(fetchAccounts,8000)
 fetchAccounts()
 
 
-
-// Add Account
+// add account
 
 addAccountBtn.onclick=async()=>{
 
-const phone=phoneInput.value.trim()
-const api_id=apiIdInput.value.trim()
-const api_hash=apiHashInput.value.trim()
-const session=sessionInput.value.trim()
-
-if(!phone||!api_id||!api_hash||!session){
-
-alert("Fill all fields")
-return
-
-}
-
-try{
+const phone=phoneInput.value
+const api_id=apiIdInput.value
+const api_hash=apiHashInput.value
+const session=sessionInput.value
 
 const res=await fetch(API_BASE+"/add-account",{
 
@@ -262,46 +372,48 @@ body:JSON.stringify({phone,api_id,api_hash,session})
 
 })
 
-const text=await res.text()
+const data=await res.json()
 
-let data
-
-try{
-data=JSON.parse(text)
-}catch{
-alert("Server returned HTML / Error")
-return
-}
-
-alert(data.success?"Account Added":"Failed")
-
-fetchAccounts()
-
-}catch(e){
-
-alert("Network error")
-
-}
+uploadStats.innerText=data.success?"Account Added":"Failed"
 
 }
 
 
+// upload file
 
-// AUTO ADD MEMBERS
+uploadBtn.onclick=async()=>{
+
+const file=document.getElementById("file").files[0]
+
+if(!file) return alert("Select file")
+
+const txt=await file.text()
+
+const res=await fetch(API_BASE+"/upload-accounts",{
+
+method:"POST",
+headers:{"Content-Type":"application/json"},
+body:JSON.stringify({accounts:txt})
+
+})
+
+const data=await res.json()
+
+uploadStats.innerText=data.success?"Uploaded":"Failed"
+
+}
+
+
+// auto add
 
 startAutoAddBtn.onclick=async()=>{
 
-const source=sourceGroupInput.value.trim()
-const target=targetGroupInput.value.trim()
+const source=sourceGroupInput.value
+const target=targetGroupInput.value
 
-if(!source||!target){
-alert("Enter groups")
-return
-}
+if(!source||!target) return alert("Enter groups")
 
 loading.style.display="block"
-
-try{
 
 const res=await fetch(API_BASE+"/members",{
 
@@ -336,6 +448,7 @@ const result=await addRes.json()
 const li=document.createElement("li")
 
 li.innerHTML=`
+<img class="avatar" src="https://i.imgur.com/3GvwNBf.png">
 ${m.username||m.user_id}
 →
 <span class="${result.status==="success"?"success":"failed"}">
@@ -355,27 +468,14 @@ await new Promise(r=>setTimeout(r,20000))
 
 }
 
-alert("Finished")
-
-}catch(e){
-
-loading.style.display="none"
-
-}
-
 }
 
 
-
-// HISTORY
+// history
 
 async function fetchHistory(){
 
-try{
-
 const res=await fetch(API_BASE+"/history")
-
-if(!res.ok)return
 
 const data=await res.json()
 
@@ -391,34 +491,10 @@ ${h.username||h.user_id} → ${h.status}
 
 })
 
-}catch(e){}
-
 }
 
-setInterval(fetchHistory,5000)
+setInterval(fetchHistory,6000)
 fetchHistory()
-
-
-
-// DOWNLOAD HISTORY
-
-downloadHistoryBtn.onclick=async()=>{
-
-const res=await fetch(API_BASE+"/history")
-
-const data=await res.json()
-
-const blob=new Blob([JSON.stringify(data,null,2)])
-
-const a=document.createElement("a")
-
-a.href=URL.createObjectURL(blob)
-
-a.download="history.json"
-
-a.click()
-
-}
 
 </script>
 
