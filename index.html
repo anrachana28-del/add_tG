@@ -1,164 +1,118 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
 <meta charset="UTF-8">
-<title>Telegram Export & Auto-Add PRO+++</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono&display=swap" rel="stylesheet">
+<title>Telegram Export Tool PRO</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
 
 <style>
 
 body{
-font-family:'JetBrains Mono',monospace;
-background:#121213;
-color:#fff;
+font-family:Arial;
+background:#0f172a;
+color:white;
 margin:0;
-padding:0;
 }
 
-.container{
-max-width:900px;
-margin:auto;
+header{
+background:#020617;
 padding:15px;
-}
-
-section{
-background:#1f2937;
-border-radius:16px;
-padding:20px;
-margin-bottom:20px;
-box-shadow:0 8px 20px rgba(0,0,0,0.5);
-}
-
-.card-title{
 font-size:20px;
-font-weight:700;
-margin-bottom:15px;
-color:#22c55e;
+font-weight:bold;
 }
 
-input{
-width:100%;
-padding:12px;
-margin-top:10px;
-border-radius:10px;
-border:none;
+nav{
+display:flex;
+gap:10px;
+padding:10px;
 background:#111827;
-color:#fff;
-font-size:15px;
 }
 
 button{
+padding:10px 15px;
 border:none;
-padding:10px;
-border-radius:8px;
+border-radius:6px;
 cursor:pointer;
-font-size:14px;
 }
 
-.btn-group{
-display:flex;
-gap:8px;
-flex-wrap:wrap;
-margin-bottom:15px;
+.nav-btn{
+background:#1f2937;
+color:white;
 }
 
-.btn-group button{
-flex:1;
-background:#fff;
-color:#000;
+.page{
+display:none;
+padding:20px;
 }
 
-.btn-group button:hover{
-background:#22c55e;
-color:#fff;
+.active{
+display:block;
 }
 
-.success{color:#22c55e;}
-.failed{color:#f43f5e;}
-
-.avatar{
-width:28px;
-height:28px;
-border-radius:50%;
-margin-right:6px;
-}
-
-ul{
-list-style:none;
-padding:0;
-}
-
-li{
-padding:6px;
-border-bottom:1px solid rgba(255,255,255,0.05);
-display:flex;
-align-items:center;
-}
-
-.table-responsive{
-overflow-x:auto;
+input{
+padding:10px;
+width:100%;
+margin-bottom:10px;
+border-radius:6px;
+border:none;
 }
 
 table{
 width:100%;
 border-collapse:collapse;
-}
-
-th,td{
-padding:8px;
-border-bottom:1px solid rgba(255,255,255,0.1);
-}
-
-th{
-background:#374151;
-}
-
-.page{display:none;}
-.page.active{display:block;}
-
-.progress-bar{
-background:#374151;
-height:12px;
-border-radius:10px;
-margin-top:6px;
-}
-
-.progress{
-background:#22c55e;
-height:12px;
-width:0%;
-border-radius:10px;
-}
-
-.spinner{
-display:none;
-text-align:center;
 margin-top:10px;
 }
 
+td,th{
+border:1px solid #334155;
+padding:8px;
+text-align:left;
+}
+
+.success{color:#22c55e}
+.failed{color:#ef4444}
+
+.progress{
+height:8px;
+background:#1e293b;
+border-radius:5px;
+margin-top:10px;
+}
+
+.progress-bar{
+height:100%;
+background:#22c55e;
+width:0%;
+}
+
 </style>
+
 </head>
 
 <body>
 
-<div class="container">
+<header>Telegram Automation Panel</header>
 
-<div class="btn-group">
-<button class="nav-btn" data-page="accountsPage">Accounts</button>
-<button class="nav-btn" data-page="membersPage">Auto Add</button>
-<button class="nav-btn" data-page="uploadPage">Upload</button>
-<button class="nav-btn" data-page="historyPage">History</button>
-</div>
+<nav>
+<button class="nav-btn" data-page="accounts">Accounts</button>
+<button class="nav-btn" data-page="autoadd">Auto Add</button>
+<button class="nav-btn" data-page="history">History</button>
+</nav>
 
-<!-- ACCOUNTS -->
+<!-- ACCOUNTS PAGE -->
+<div id="accounts" class="page active">
 
-<section id="accountsPage" class="page active">
+<h3>Add Account</h3>
 
-<div class="card-title">Accounts Status</div>
+<input id="phoneInput" placeholder="Phone">
+<input id="apiIdInput" placeholder="API ID">
+<input id="apiHashInput" placeholder="API HASH">
+<input id="sessionInput" placeholder="String Session">
 
-<div class="table-responsive">
+<button id="addAccountBtn">Add Account</button>
+
+<h3>Accounts Status</h3>
+
 <table>
 <thead>
 <tr>
@@ -168,74 +122,57 @@ margin-top:10px;
 <th>FloodWait</th>
 </tr>
 </thead>
+
 <tbody id="accountsTable"></tbody>
 </table>
+
 </div>
 
-</section>
 
-<!-- MEMBERS -->
+<!-- AUTO ADD PAGE -->
 
-<section id="membersPage" class="page">
+<div id="autoadd" class="page">
 
-<div class="card-title">Auto Add Members</div>
+<h3>Auto Add Members</h3>
 
-<input id="sourceGroupInput" placeholder="Source Group">
-<input id="targetGroupInput" placeholder="Target Group">
+<input id="sourceGroupInput" placeholder="Source Group Link">
+<input id="targetGroupInput" placeholder="Target Group Link">
 
-<button id="startAutoAddBtn">Start Auto-Add</button>
+<button id="startAutoAddBtn">Start Auto Add</button>
 
-<div id="loading" class="spinner">⏳ Loading Members...</div>
+<div id="loading" style="display:none">Loading members...</div>
 
-<div id="autoAddCounter">0 / 0</div>
-
-<div class="progress-bar">
-<div id="autoAddProgress" class="progress"></div>
+<div class="progress">
+<div id="autoAddProgress" class="progress-bar"></div>
 </div>
+
+<div id="autoAddCounter"></div>
 
 <ul id="autoAddList"></ul>
 
-</section>
+</div>
 
-<!-- UPLOAD -->
-
-<section id="uploadPage" class="page">
-
-<div class="card-title">Upload Accounts</div>
-
-<input id="phoneInput" placeholder="Phone +855">
-<input id="apiIdInput" placeholder="API ID">
-<input id="apiHashInput" placeholder="API HASH">
-<input id="sessionInput" placeholder="Session String">
-
-<button id="addAccountBtn">Add Account</button>
-
-<br><br>
-
-<input type="file" id="file" accept=".txt">
-<button id="uploadBtn">Upload File</button>
-
-<div id="uploadStats"></div>
-
-</section>
 
 <!-- HISTORY -->
 
-<section id="historyPage" class="page">
+<div id="history" class="page">
 
-<div class="card-title">History</div>
+<h3>History</h3>
+
+<button id="downloadHistoryBtn">Download JSON</button>
 
 <ul id="historyList"></ul>
 
-<button id="downloadHistoryBtn">Download History</button>
-
-</section>
-
 </div>
+
+
 
 <script>
 
-// navigation
+const API_BASE="https://add-tg-2.onrender.com"
+
+
+// Navigation
 
 document.querySelectorAll(".nav-btn").forEach(btn=>{
 btn.onclick=()=>{
@@ -245,17 +182,15 @@ document.getElementById(btn.dataset.page).classList.add("active")
 })
 
 
-// accounts
-
-const accountsTable=document.getElementById("accountsTable")
+// Fetch Accounts
 
 async function fetchAccounts(){
 
 try{
 
-const res=await fetch("/account-status")
+const res=await fetch(API_BASE+"/account-status")
 
-if(!res.ok) return
+if(!res.ok)return
 
 const data=await res.json()
 
@@ -272,9 +207,7 @@ if(acc.floodWaitUntil){
 let r=Math.floor((acc.floodWaitUntil-Date.now())/1000)
 
 if(r>0){
-
 flood=Math.floor(r/60)+"m "+(r%60)+"s"
-
 }
 
 }
@@ -290,18 +223,22 @@ accountsTable.innerHTML+=`
 
 })
 
-}catch(e){console.log(e)}
+}catch(e){
+
+console.log("Account error",e)
+
+}
 
 }
 
 setInterval(fetchAccounts,8000)
-
 fetchAccounts()
 
 
-// add account
 
-document.getElementById("addAccountBtn").onclick=async()=>{
+// Add Account
+
+addAccountBtn.onclick=async()=>{
 
 const phone=phoneInput.value.trim()
 const api_id=apiIdInput.value.trim()
@@ -310,12 +247,14 @@ const session=sessionInput.value.trim()
 
 if(!phone||!api_id||!api_hash||!session){
 
-alert("All fields required")
+alert("Fill all fields")
 return
 
 }
 
-const res=await fetch("/add-account",{
+try{
+
+const res=await fetch(API_BASE+"/add-account",{
 
 method:"POST",
 headers:{"Content-Type":"application/json"},
@@ -323,54 +262,48 @@ body:JSON.stringify({phone,api_id,api_hash,session})
 
 })
 
-const data=await res.json()
+const text=await res.text()
 
-uploadStats.innerText=data.success?"Added":"Failed"
+let data
+
+try{
+data=JSON.parse(text)
+}catch{
+alert("Server returned HTML / Error")
+return
+}
+
+alert(data.success?"Account Added":"Failed")
+
+fetchAccounts()
+
+}catch(e){
+
+alert("Network error")
+
+}
 
 }
 
 
-// upload file
 
-uploadBtn.onclick=async()=>{
-
-const file=document.getElementById("file").files[0]
-
-if(!file)return alert("select file")
-
-const txt=await file.text()
-
-const res=await fetch("/upload-accounts",{
-
-method:"POST",
-headers:{"Content-Type":"application/json"},
-body:JSON.stringify({accounts:txt})
-
-})
-
-const data=await res.json()
-
-uploadStats.innerText=data.success?"Uploaded":"Failed"
-
-}
-
-
-// auto add
-
-const autoAddList=document.getElementById("autoAddList")
-const counter=document.getElementById("autoAddCounter")
-const progress=document.getElementById("autoAddProgress")
+// AUTO ADD MEMBERS
 
 startAutoAddBtn.onclick=async()=>{
 
 const source=sourceGroupInput.value.trim()
 const target=targetGroupInput.value.trim()
 
-if(!source||!target)return alert("enter groups")
+if(!source||!target){
+alert("Enter groups")
+return
+}
 
 loading.style.display="block"
 
-const res=await fetch("/members",{
+try{
+
+const res=await fetch(API_BASE+"/members",{
 
 method:"POST",
 headers:{"Content-Type":"application/json"},
@@ -386,7 +319,7 @@ let processed=0
 
 for(const m of members){
 
-const addRes=await fetch("/add-member",{
+const addRes=await fetch(API_BASE+"/add-member",{
 
 method:"POST",
 headers:{"Content-Type":"application/json"},
@@ -403,7 +336,6 @@ const result=await addRes.json()
 const li=document.createElement("li")
 
 li.innerHTML=`
-<img class="avatar" src="https://i.imgur.com/3GvwNBf.png">
 ${m.username||m.user_id}
 →
 <span class="${result.status==="success"?"success":"failed"}">
@@ -415,24 +347,35 @@ autoAddList.appendChild(li)
 
 processed++
 
-counter.innerText=processed+" / "+members.length
+autoAddCounter.innerText=processed+" / "+members.length
 
-progress.style.width=Math.floor((processed/members.length)*100)+"%"
+autoAddProgress.style.width=Math.floor((processed/members.length)*100)+"%"
 
 await new Promise(r=>setTimeout(r,20000))
 
 }
 
-alert("Auto Add Finished")
+alert("Finished")
+
+}catch(e){
+
+loading.style.display="none"
+
+}
 
 }
 
 
-// history
+
+// HISTORY
 
 async function fetchHistory(){
 
-const res=await fetch("/history")
+try{
+
+const res=await fetch(API_BASE+"/history")
+
+if(!res.ok)return
 
 const data=await res.json()
 
@@ -448,18 +391,20 @@ ${h.username||h.user_id} → ${h.status}
 
 })
 
+}catch(e){}
+
 }
 
-setInterval(fetchHistory,6000)
-
+setInterval(fetchHistory,5000)
 fetchHistory()
 
 
-// download history
+
+// DOWNLOAD HISTORY
 
 downloadHistoryBtn.onclick=async()=>{
 
-const res=await fetch("/history")
+const res=await fetch(API_BASE+"/history")
 
 const data=await res.json()
 
