@@ -59,6 +59,8 @@ th{background:#11141f;color:#00ff7f;}
 <!-- Auto Add -->
 <section id="membersPage" class="page">
 <div class="card-title">Auto Add Members</div>
+<label for="accountSelect">Select Account (optional):</label>
+<select id="accountSelect"></select>
 <input id="sourceGroupInput" placeholder="Source Group">
 <input id="targetGroupInput" placeholder="Target Group">
 <button id="startAutoAddBtn">Start Auto-Add</button>
@@ -88,6 +90,7 @@ th{background:#11141f;color:#00ff7f;}
 <ul id="historyList"></ul>
 <button id="downloadHistoryBtn">Download History</button>
 </section>
+
 </div>
 
 <script>
@@ -114,6 +117,26 @@ async function fetchAccounts(){
 }
 setInterval(fetchAccounts,8000); fetchAccounts();
 
+// Load accounts dropdown for Auto-Add
+const accountSelect = document.getElementById("accountSelect");
+async function loadAccountsDropdown() {
+  try {
+    const res = await fetch("/account-status");
+    if(!res.ok) return;
+    const data = await res.json();
+    accountSelect.innerHTML = "";
+    Object.keys(data).forEach(id => {
+      const acc = data[id];
+      const option = document.createElement("option");
+      option.value = id;
+      option.text = `${acc.phone} (${acc.status})`;
+      accountSelect.appendChild(option);
+    });
+  } catch(e) { console.log(e); }
+}
+setInterval(loadAccountsDropdown, 8000);
+loadAccountsDropdown();
+
 // Add Account
 addAccountBtn.onclick=async()=>{
   const phone=phoneInput.value.trim(), api_id=apiIdInput.value.trim(), api_hash=apiHashInput.value.trim(), session=sessionInput.value.trim();
@@ -131,26 +154,54 @@ uploadBtn.onclick=async()=>{
 };
 
 // Auto Add Members
-const autoAddList=document.getElementById("autoAddList"), counter=document.getElementById("autoAddCounter"), progress=document.getElementById("autoAddProgress"), autoAddStatus=document.getElementById("autoAddStatus"), loading=document.getElementById("loading");
-startAutoAddBtn.onclick=async()=>{
-  const source=sourceGroupInput.value.trim(), target=targetGroupInput.value.trim();
+const autoAddList = document.getElementById("autoAddList");
+const counter = document.getElementById("autoAddCounter");
+const progress = document.getElementById("autoAddProgress");
+const autoAddStatus = document.getElementById("autoAddStatus");
+const loading = document.getElementById("loading");
+startAutoAddBtn.onclick = async () => {
+  const source = sourceGroupInput.value.trim();
+  const target = targetGroupInput.value.trim();
   if(!source||!target) return alert("Enter groups");
-  loading.style.display="block";
-  const res=await fetch("/members",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({group:source})});
-  const members = await res.json(); loading.style.display="none";
-  let processed=0;
+
+  loading.style.display = "block";
+  const res = await fetch("/members",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({group:source})});
+  const members = await res.json();
+  loading.style.display = "none";
+
+  const accRes = await fetch("/account-status");
+  const accData = await accRes.json();
+  const accounts = Object.keys(accData);
+  let accIndex = 0;
+
+  let processed = 0;
+  autoAddList.innerHTML = "";
+
   for(const m of members){
-    const addRes = await fetch("/add-member",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:m.username,user_id:m.user_id,targetGroup:target})});
+    let currentAccount = accounts[accIndex];
+    const addRes = await fetch("/add-member",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:m.username,user_id:m.user_id,targetGroup:target,accountId:currentAccount})});
     const result = await addRes.json();
-    autoAddStatus.innerText = `Adding by ${result.accountUsed} ... cooldown ${result.waitTime || 20}s`;
+
     const li=document.createElement("li");
-    li.innerHTML=`<img class="avatar" src="${m.avatar}"> ${m.username||m.user_id} → <span class="${result.status==="success"?"success":"failed"}">${result.status}</span>`;
+    li.innerHTML=`<img class="avatar" src="${m.avatar}"> ${m.username||m.user_id} → <span class="${result.status==="success"?"success":"failed"}">${result.status} by ${result.accountUsed || currentAccount}</span>`;
     autoAddList.appendChild(li);
-    processed++; counter.innerText = processed+" / "+members.length;
-    progress.style.width = Math.floor((processed/members.length)*100)+"%";
-    let wait = result.waitTime || 20;
-    while(wait>0){ autoAddStatus.innerText=`Adding by ${result.accountUsed} ... cooldown ${wait}s`; await new Promise(r=>setTimeout(r,1000)); wait--; }
+    autoAddList.scrollTop = autoAddList.scrollHeight;
+
+    processed++; counter.innerText = `${processed} / ${members.length}`;
+    progress.style.width = `${Math.floor((processed/members.length)*100)}%`;
+
+    if(result.status==="success"){
+      let wait=result.waitTime||20;
+      while(wait>0){
+        autoAddStatus.innerText = `Added by ${currentAccount} ✅ cooldown ${wait}s`;
+        await new Promise(r=>setTimeout(r,1000)); wait--;
+      }
+      accIndex = (accIndex + 1) % accounts.length;
+    }else{
+      autoAddStatus.innerText = `Failed by ${currentAccount} ❌ retry next member with same account`;
+    }
   }
+
   autoAddStatus.innerText="Auto Add Finished!";
   alert("Auto Add Finished");
 };
