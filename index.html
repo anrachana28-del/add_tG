@@ -11,8 +11,8 @@ body{font-family:'JetBrains Mono',monospace;background:#0f0f10;color:#fff;margin
 .container{max-width:900px;margin:auto;padding:15px;}
 section{background:#1e1e2a;border-radius:20px;padding:20px;margin-bottom:20px;box-shadow:0 6px 20px rgba(0,0,0,0.6);}
 .card-title{font-size:22px;font-weight:700;margin-bottom:15px;color:#00ff7f;text-align:center;}
-input{width:100%;padding:12px;margin-top:10px;border-radius:12px;border:none;background:#11141f;color:#fff;font-size:15px;outline:none;}
-input:focus{border:1px solid #00ff7f;}
+input, select{width:100%;padding:12px;margin-top:10px;border-radius:12px;border:none;background:#11141f;color:#fff;font-size:15px;outline:none;}
+input:focus, select:focus{border:1px solid #00ff7f;}
 button{border:none;padding:12px;border-radius:12px;cursor:pointer;font-size:15px;font-weight:600;background:#00ff7f;color:#0f0f10;transition:0.2s;}
 button:hover{background:#00cc66;color:#fff;}
 .btn-group{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:15px;}
@@ -20,9 +20,10 @@ button:hover{background:#00cc66;color:#fff;}
 .btn-group button:hover{background:#00ff7f;color:#0f0f10;}
 .success{color:#00ff7f;font-weight:700;}
 .failed{color:#ff4c4c;font-weight:700;}
+.warning{color:#ffcc00;font-weight:700;}
 .avatar{width:28px;height:28px;border-radius:50%;margin-right:8px;}
 ul{list-style:none;padding:0;margin-top:10px;}
-li{padding:8px;border-bottom:1px solid rgba(255,255,255,0.05);display:flex;align-items:center;}
+li{padding:8px;border-bottom:1px solid rgba(255,255,255,0.05);display:flex;align-items:flex-start;flex-direction:column;}
 .table-responsive{overflow-x:auto;}
 table{width:100%;border-collapse:collapse;}
 th,td{padding:10px;border-bottom:1px solid rgba(255,255,255,0.1);}
@@ -96,13 +97,11 @@ th{background:#11141f;color:#00ff7f;}
 <script>
 // Navigation
 document.querySelectorAll(".nav-btn").forEach(btn=>{
-  btn.onclick=()=>{
-    document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
-    document.getElementById(btn.dataset.page).classList.add("active");
-  }
+  btn.onclick=()=>{document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
+  document.getElementById(btn.dataset.page).classList.add("active");}
 });
 
-// Accounts
+// Accounts table
 const accountsTable=document.getElementById("accountsTable");
 async function fetchAccounts(){
   try{
@@ -117,7 +116,7 @@ async function fetchAccounts(){
 }
 setInterval(fetchAccounts,8000); fetchAccounts();
 
-// Load accounts dropdown for Auto-Add
+// Load accounts dropdown
 const accountSelect = document.getElementById("accountSelect");
 async function loadAccountsDropdown() {
   try {
@@ -154,28 +153,28 @@ uploadBtn.onclick=async()=>{
 };
 
 // Auto Add Members
-const autoAddList = document.getElementById("autoAddList");
-const counter = document.getElementById("autoAddCounter");
-const progress = document.getElementById("autoAddProgress");
-const autoAddStatus = document.getElementById("autoAddStatus");
-const loading = document.getElementById("loading");
-startAutoAddBtn.onclick = async () => {
-  const source = sourceGroupInput.value.trim();
-  const target = targetGroupInput.value.trim();
+const autoAddList=document.getElementById("autoAddList");
+const counter=document.getElementById("autoAddCounter");
+const progress=document.getElementById("autoAddProgress");
+const autoAddStatus=document.getElementById("autoAddStatus");
+const loading=document.getElementById("loading");
+
+startAutoAddBtn.onclick=async()=>{
+  const source=sourceGroupInput.value.trim();
+  const target=targetGroupInput.value.trim();
   if(!source||!target) return alert("Enter groups");
 
-  loading.style.display = "block";
-  const res = await fetch("/members",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({group:source})});
+  loading.style.display="block";
+  const res=await fetch("/members",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({group:source})});
   const members = await res.json();
-  loading.style.display = "none";
+  loading.style.display="none";
 
   const accRes = await fetch("/account-status");
   const accData = await accRes.json();
   const accounts = Object.keys(accData);
-  let accIndex = 0;
-
-  let processed = 0;
-  autoAddList.innerHTML = "";
+  let accIndex=0;
+  let processed=0;
+  autoAddList.innerHTML="";
 
   for(const m of members){
     let currentAccount = accounts[accIndex];
@@ -183,7 +182,9 @@ startAutoAddBtn.onclick = async () => {
     const result = await addRes.json();
 
     const li=document.createElement("li");
-    li.innerHTML=`<img class="avatar" src="${m.avatar}"> ${m.username||m.user_id} → <span class="${result.status==="success"?"success":"failed"}">${result.status} by ${result.accountUsed || currentAccount}</span>`;
+    li.innerHTML=`<img class="avatar" src="${m.avatar}"> ${m.username||m.user_id} → 
+    <span style="color:${result.status==='success'?'#00ff7f':result.status==='failed_not_joined'?'#ffcc00':'#ff4c4c'}">${result.status}</span> by ${result.accountUsed}
+    <br><span style="color:#ffcc00;font-size:12px;">Reason: ${result.reason || 'N/A'}</span>`;
     autoAddList.appendChild(li);
     autoAddList.scrollTop = autoAddList.scrollHeight;
 
@@ -193,12 +194,13 @@ startAutoAddBtn.onclick = async () => {
     if(result.status==="success"){
       let wait=result.waitTime||20;
       while(wait>0){
-        autoAddStatus.innerText = `Added by ${currentAccount} ✅ cooldown ${wait}s`;
-        await new Promise(r=>setTimeout(r,1000)); wait--;
+        autoAddStatus.innerText=`Added by ${currentAccount} ✅ cooldown ${wait}s`;
+        await new Promise(r=>setTimeout(r,1000));
+        wait--;
       }
-      accIndex = (accIndex + 1) % accounts.length;
-    }else{
-      autoAddStatus.innerText = `Failed by ${currentAccount} ❌ retry next member with same account`;
+      accIndex = (accIndex+1)%accounts.length;
+    } else {
+      autoAddStatus.innerText=`Failed by ${currentAccount} ❌ retry next member with same account`;
     }
   }
 
@@ -210,7 +212,10 @@ startAutoAddBtn.onclick = async () => {
 const historyList=document.getElementById("historyList");
 async function fetchHistory(){
   const res=await fetch("/history"); const data=await res.json(); historyList.innerHTML="";
-  Object.values(data).forEach(h=>{ historyList.innerHTML+=`<li class="${h.status==="success"?"success":"failed"}">${h.username||h.user_id} → ${h.status}</li>` });
+  Object.values(data).forEach(h=>{
+    const color=h.status==="success"?"#00ff7f":h.status==="failed_not_joined"?"#ffcc00":"#ff4c4c";
+    historyList.innerHTML+=`<li>${h.username||h.user_id} → <span style="color:${color}">${h.status}</span> by ${h.accountUsed}<br><span style="color:#ffcc00;font-size:12px;">Reason: ${h.reason||'N/A'}</span></li>`;
+  });
 }
 setInterval(fetchHistory,6000); fetchHistory();
 downloadHistoryBtn.onclick=async()=>{
