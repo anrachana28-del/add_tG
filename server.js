@@ -208,7 +208,7 @@ app.post('/add-member', async(req,res)=>{
       await push(ref(db,'history'),{
         username,
         user_id,
-        status:"skipped (already_in_group)",
+        status:"skipped",
         reason:"already_in_group",
         accountUsed:acc.id,
         timestamp:Date.now()
@@ -217,7 +217,7 @@ app.post('/add-member', async(req,res)=>{
       await client.disconnect();
 
       return res.json({
-        status:"skipped (already_in_group)",
+        status:"skipped",
         accountUsed:acc.id
       });
 
