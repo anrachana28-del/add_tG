@@ -1,4 +1,3 @@
-
 import 'dotenv/config';
 import express from 'express';
 import { initializeApp } from 'firebase/app';
@@ -116,7 +115,7 @@ app.post('/upload-accounts', async(req,res)=>{
 app.post('/members', async(req,res)=>{
   try{
     const { group } = req.body;
-    const acc = accounts[0]; // first account
+    const acc = accounts[0]; // first account for fetching members
     const client = new TelegramClient(new StringSession(acc.session), acc.api_id, acc.api_hash, {connectionRetries:5});
     await client.start({});
     const entity = await client.getEntity(group);
@@ -127,23 +126,33 @@ app.post('/members', async(req,res)=>{
   }catch(err){ res.status(500).json({ error:err.message }); }
 });
 
-// Add Member (auto-rotation)
+// Add Member with rotation only on success
 let accountIndex = 0;
 app.post('/add-member', async(req,res)=>{
   try{
-    const { username, user_id, targetGroup } = req.body;
-    const acc = accounts[accountIndex % accounts.length];
-    accountIndex++;
+    const { username, user_id, targetGroup, accountId } = req.body;
+    let acc;
+    if(accountId){
+      acc = accounts.find(a=>a.id===accountId);
+    }else{
+      acc = accounts[accountIndex % accounts.length];
+    }
+
     const client = new TelegramClient(new StringSession(acc.session), acc.api_id, acc.api_hash, {connectionRetries:5});
     await client.start({});
     const group = await client.getEntity(targetGroup);
     let user = username ? await client.getEntity(username) : await client.getEntity(user_id);
+    
     try{
       await client.invoke(new Api.channels.InviteToChannel({ channel: group, users: [user] }));
       await push(ref(db,'history'),{ username, user_id, status:"success", accountUsed:acc.id, timestamp:Date.now() });
       await client.disconnect();
+      
+      // rotate account only on success
+      accountIndex = (accountIndex+1) % accounts.length;
       res.json({ status:"success", accountUsed:acc.id });
     }catch(errAdd){
+      // handle floodwait
       if(errAdd.message.includes("FLOOD_WAIT")){
         const m = errAdd.message.match(/FLOOD_WAIT_(\d+)/);
         if(m){
