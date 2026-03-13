@@ -114,8 +114,11 @@ async function fetchAccounts(){
       let flood="-"; let disabled=false;
       if(acc.floodWaitUntil){ 
         let r=Math.floor((acc.floodWaitUntil-now)/1000);
-        if(r>0){let m=Math.floor(r/60), s=r%60; flood=`${m}m ${s}s`; disabled=true;} 
-        else acc.status="active";
+        if(r>0){
+          let d=new Date(acc.floodWaitUntil); 
+          flood=`${d.toLocaleDateString()} ${d.toLocaleTimeString()} (${Math.floor(r/60)}m ${r%60}s)`;
+          disabled=true;
+        }else acc.status="active";
       }
       accountsTable.innerHTML+=`<tr class="${disabled?'floodwait':''}"><td>${id}</td><td>${acc.phone}</td><td>${acc.status}</td><td>${flood}</td></tr>`;
     });
@@ -154,9 +157,8 @@ uploadBtn.onclick=async()=>{
   const data = await res.json(); uploadStats.innerText=data.success?"Uploaded":"Failed";
 };
 
-// Auto Add Members with FloodWait countdown
+// Auto Add Members with FloodWait and switch logic
 const autoAddList=document.getElementById("autoAddList"), counter=document.getElementById("autoAddCounter"), progress=document.getElementById("autoAddProgress"), autoAddStatus=document.getElementById("autoAddStatus"), loading=document.getElementById("loading");
-let floodTimers={};
 
 startAutoAddBtn.onclick=async()=>{
   const source=sourceGroupInput.value.trim(), target=targetGroupInput.value.trim();
@@ -167,36 +169,50 @@ startAutoAddBtn.onclick=async()=>{
   const accRes=await fetch("/account-status"); const accData=await accRes.json();
   const accounts=Object.keys(accData); let accIndex=0; let processed=0; autoAddList.innerHTML="";
 
-  function updateFloodStatus(){
+  function getNextAvailableAccount(startIndex){
     const now=Date.now();
+    for(let i=0;i<accounts.length;i++){
+      let idx=(startIndex+i)%accounts.length;
+      const acc=accData[accounts[idx]];
+      if(!acc.floodWaitUntil || acc.floodWaitUntil<=now) return idx;
+    }
+    return -1;
+  }
+
+  const floodInterval=setInterval(()=>{
+    const now=Date.now();
+    let anyAvailable=false;
     Object.keys(accData).forEach(id=>{
       const acc=accData[id];
       if(acc.floodWaitUntil && acc.floodWaitUntil>now){
         let r=Math.floor((acc.floodWaitUntil-now)/1000);
-        let m=Math.floor(r/60), s=r%60;
-        floodTimers[id]=`${m}m ${s}s`;
+        let d=new Date(acc.floodWaitUntil);
+        floodTimers[id]=`${d.toLocaleDateString()} ${d.toLocaleTimeString()} (${Math.floor(r/60)}m ${r%60}s)`;
       }else floodTimers[id]=null;
     });
-    let currentAcc=accounts[accIndex];
-    if(floodTimers[currentAcc]) autoAddStatus.innerText=`Account ${currentAcc} FloodWait: ${floodTimers[currentAcc]}`;
-  }
-  const floodInterval=setInterval(updateFloodStatus,1000);
+    const nextAccIdx=getNextAvailableAccount(accIndex);
+    if(nextAccIdx===-1){
+      autoAddStatus.innerText="All accounts in FloodWait. Stopping Auto-Add ⛔";
+      clearInterval(floodInterval); return;
+    }else{
+      let currentAcc=accounts[nextAccIdx];
+      if(floodTimers[currentAcc]) autoAddStatus.innerText=`Next account ${currentAcc} blocked until ${floodTimers[currentAcc]}`;
+    }
+  },1000);
 
   for(const m of members){
-    let tries=0;
-    while(tries<accounts.length){
-      let currentAccount=accounts[accIndex]; const accInfo=accData[currentAccount];
-      if(accInfo.floodWaitUntil && accInfo.floodWaitUntil>Date.now()){ accIndex=(accIndex+1)%accounts.length; tries++; continue; }
-      const addRes=await fetch("/add-member",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:m.username,user_id:m.user_id,targetGroup:target,accountId:currentAccount})});
-      const result=await addRes.json();
-      const li=document.createElement("li");
-      li.innerHTML=`<img class="avatar" src="${m.avatar}"> ${m.username||m.user_id} → <span style="color:${result.status==='success'?'#00ff7f':result.status==='failed_not_joined'?'#ffcc00':'#ff4c4c'}">${result.status}</span> by ${result.accountUsed}<br><span style="color:#ffcc00;font-size:12px;">Reason: ${result.reason||'N/A'}</span>`;
-      autoAddList.appendChild(li); autoAddList.scrollTop=autoAddList.scrollHeight;
-      processed++; counter.innerText=`${processed} / ${members.length}`;
-      progress.style.width=`${Math.floor((processed/members.length)*100)}%`;
-      if(result.status==="success") accIndex=(accIndex+1)%accounts.length;
-      break;
-    }
+    let nextAccIdx=getNextAvailableAccount(accIndex);
+    if(nextAccIdx===-1){ autoAddStatus.innerText="All accounts in FloodWait. Stopping Auto-Add ⛔"; break; }
+    accIndex=nextAccIdx;
+    const currentAccount=accounts[accIndex];
+    const addRes=await fetch("/add-member",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:m.username,user_id:m.user_id,targetGroup:target,accountId:currentAccount})});
+    const result=await addRes.json();
+    const li=document.createElement("li");
+    li.innerHTML=`<img class="avatar" src="${m.avatar}"> ${m.username||m.user_id} → <span style="color:${result.status==='success'?'#00ff7f':result.status==='failed_not_joined'?'#ffcc00':'#ff4c4c'}">${result.status}</span> by ${result.accountUsed}<br><span style="color:#ffcc00;font-size:12px;">Reason: ${result.reason||'N/A'}</span>`;
+    autoAddList.appendChild(li); autoAddList.scrollTop=autoAddList.scrollHeight;
+    processed++; counter.innerText=`${processed} / ${members.length}`;
+    progress.style.width=`${Math.floor((processed/members.length)*100)}%`;
+    if(result.status==="success") accIndex=(accIndex+1)%accounts.length;
   }
   clearInterval(floodInterval);
   autoAddStatus.innerText="Auto Add Finished!";
