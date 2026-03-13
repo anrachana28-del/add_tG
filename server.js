@@ -37,9 +37,10 @@ while (process.env[`TG_ACCOUNT_${i}_PHONE`]) {
   });
 
   i++;
+
 }
 
-/* ================= ACCOUNT CHECK ================= */
+/* ================= CHECK TELEGRAM ACCOUNT ================= */
 
 async function checkTGAccount(account){
 
@@ -75,7 +76,10 @@ async function checkTGAccount(account){
 
       const m = err.message.match(/FLOOD_WAIT_(\d+)/);
 
-      if(m) floodUntil = Date.now() + Number(m[1])*1000;
+      if(m){
+        floodUntil = Date.now() + Number(m[1])*1000;
+      }
+
     }
 
     await update(ref(db,`accounts/${account.id}`),{
@@ -85,7 +89,9 @@ async function checkTGAccount(account){
       lastChecked:Date.now(),
       floodWaitUntil:floodUntil
     });
+
   }
+
 }
 
 /* ================= AUTO CHECK ================= */
@@ -132,12 +138,10 @@ app.post('/members', async(req,res)=>{
     const participants = await client.getParticipants(entity,{limit:2000});
 
     const members = participants.map(p=>({
-
       user_id:p.id,
       access_hash:p.accessHash,
       username:p.username,
       avatar:`https://t.me/i/userpic/320/${p.id}.jpg`
-
     }));
 
     await client.disconnect();
@@ -177,13 +181,13 @@ app.post('/add-member', async(req,res)=>{
 
     let user;
 
-    /* ===== SUPPORT ID + ACCESS HASH ===== */
+    /* ===== CREATE USER ENTITY ===== */
 
     if(access_hash){
 
       user = new Api.InputUser({
-        userId: user_id,
-        accessHash: access_hash
+        userId:user_id,
+        accessHash:access_hash
       });
 
     }else{
@@ -194,14 +198,14 @@ app.post('/add-member', async(req,res)=>{
 
     }
 
-    /* ===== CHECK MEMBER EXIST ===== */
+    /* ===== CHECK IF ALREADY MEMBER ===== */
 
     try{
 
       await client.invoke(
         new Api.channels.GetParticipant({
-          channel: group,
-          participant: user
+          channel:group,
+          participant:user
         })
       );
 
@@ -225,16 +229,37 @@ app.post('/add-member', async(req,res)=>{
       // not member → continue
     }
 
-    /* ===== ADD MEMBER ===== */
+    /* ===== INVITE USER ===== */
+
+    await client.invoke(
+      new Api.channels.InviteToChannel({
+        channel:group,
+        users:[user]
+      })
+    );
+
+    /* ===== VERIFY JOIN ===== */
+
+    let joined = false;
 
     try{
 
       await client.invoke(
-        new Api.channels.InviteToChannel({
-          channel: group,
-          users:[user]
+        new Api.channels.GetParticipant({
+          channel:group,
+          participant:user
         })
       );
+
+      joined = true;
+
+    }catch(e){
+
+      joined = false;
+
+    }
+
+    if(joined){
 
       await push(ref(db,'history'),{
         username,
@@ -244,51 +269,30 @@ app.post('/add-member', async(req,res)=>{
         timestamp:Date.now()
       });
 
-      await client.disconnect();
-
-      /* rotate account only success */
-
       accountIndex = (accountIndex + 1) % accounts.length;
 
-      res.json({
+      await client.disconnect();
+
+      return res.json({
         status:"success",
         accountUsed:acc.id
       });
 
-    }catch(errAdd){
-
-      if(errAdd.message.includes("FLOOD_WAIT")){
-
-        const m = errAdd.message.match(/FLOOD_WAIT_(\d+)/);
-
-        if(m){
-
-          const floodUntil = Date.now() + Number(m[1])*1000;
-
-          await update(ref(db,`accounts/${acc.id}`),{
-            status:"floodwait",
-            floodWaitUntil:floodUntil
-          });
-
-        }
-
-      }
+    }else{
 
       await push(ref(db,'history'),{
         username,
         user_id,
-        status:"failed",
+        status:"failed_not_joined",
         accountUsed:acc.id,
-        error:errAdd.message,
         timestamp:Date.now()
       });
 
       await client.disconnect();
 
-      res.json({
-        status:"failed",
-        accountUsed:acc.id,
-        error:errAdd.message
+      return res.json({
+        status:"failed_not_joined",
+        accountUsed:acc.id
       });
 
     }
