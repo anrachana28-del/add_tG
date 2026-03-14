@@ -21,6 +21,7 @@ const db = getDatabase();
 
 // ===== Load Accounts =====
 const accounts = [];
+const clients = {};
 let i = 1;
 while (process.env[`TG_ACCOUNT_${i}_PHONE`]) {
   accounts.push({
@@ -35,11 +36,26 @@ while (process.env[`TG_ACCOUNT_${i}_PHONE`]) {
   i++;
 }
 
-// ===== Check Telegram Account =====
+// ===== Helper: get Telegram Client =====
+async function getClient(acc){
+  if(clients[acc.id]) return clients[acc.id];
+
+  const client = new TelegramClient(
+    new StringSession(acc.session),
+    acc.api_id,
+    acc.api_hash,
+    { connectionRetries:5 }
+  );
+
+  await client.start({});
+  clients[acc.id] = client;
+  return client;
+}
+
+// ===== Auto Check =====
 async function checkTGAccount(account){
   try{
-    const client = new TelegramClient(new StringSession(account.session), account.api_id, account.api_hash, { connectionRetries:5 });
-    await client.start({});
+    const client = await getClient(account);
     await client.getMe();
     await update(ref(db, `accounts/${account.id}`), {
       status:"active",
@@ -47,7 +63,6 @@ async function checkTGAccount(account){
       lastChecked:Date.now(),
       floodWaitUntil:null
     });
-    await client.disconnect();
   }catch(err){
     let status="error", floodUntil=null;
     if(err.message.includes("FLOOD_WAIT")){
@@ -61,7 +76,6 @@ async function checkTGAccount(account){
   }
 }
 
-// ===== Auto Check =====
 async function autoCheck(){
   for(const acc of accounts){
     await checkTGAccount(acc);
@@ -69,6 +83,19 @@ async function autoCheck(){
 }
 setInterval(autoCheck,60000);
 autoCheck();
+
+// ===== Helper: Get Available Account (Skip FloodWait) =====
+let accountIndex = 0;
+function getAvailableAccount(){
+  const now = Date.now();
+  const available = accounts.filter(acc =>
+    !acc.floodWaitUntil || acc.floodWaitUntil < now
+  );
+  if(available.length === 0) return null;
+  const acc = available[accountIndex % available.length];
+  accountIndex++;
+  return acc;
+}
 
 // ===== API Routes =====
 
@@ -78,89 +105,50 @@ app.get('/account-status', async (req,res)=>{
   res.json(snap.val() || {});
 });
 
-// Add single account
-app.post('/add-account', async(req,res)=>{
-  try{
-    const { phone, api_id, api_hash, session } = req.body;
-    const id = `TG_ACCOUNT_${accounts.length+1}`;
-    accounts.push({ phone, api_id:Number(api_id), api_hash, session, id });
-    await update(ref(db, `accounts/${id}`), {
-      phone, api_id:Number(api_id), api_hash, session,
-      status:"pending", lastChecked:null, floodWaitUntil:null
-    });
-    res.json({ success:true, id });
-  }catch(err){ res.json({ success:false, error:err.message }); }
-});
-
-// Upload multiple accounts
-app.post('/upload-accounts', async(req,res)=>{
-  try{
-    const { accounts:txt } = req.body;
-    const lines = txt.split(/\r?\n/).filter(l=>l.trim());
-    for(const line of lines){
-      const [phone, api_id, api_hash, session] = line.split(",");
-      if(!phone||!api_id||!api_hash||!session) continue;
-      const id = `TG_ACCOUNT_${accounts.length+1}`;
-      accounts.push({ phone, api_id:Number(api_id), api_hash, session, id });
-      await update(ref(db, `accounts/${id}`),{
-        phone, api_id:Number(api_id), api_hash, session,
-        status:"pending", lastChecked:null, floodWaitUntil:null
-      });
-    }
-    res.json({ success:true });
-  }catch(err){ res.json({ success:false, error:err.message }); }
-});
-
-// Fetch Members
-app.post('/members', async(req,res)=>{
-  try{
-    const { group } = req.body;
-    const acc = accounts[0];
-    const client = new TelegramClient(new StringSession(acc.session), acc.api_id, acc.api_hash, {connectionRetries:5});
-    await client.start({});
-    const entity = await client.getEntity(group);
-    const participants = await client.getParticipants(entity,{limit:2000});
-    const members = participants.map(p=>({ user_id:p.id, username:p.username, avatar:`https://t.me/i/userpic/320/${p.id}.jpg` }));
-    await client.disconnect();
-    res.json(members);
-  }catch(err){ res.status(500).json({ error:err.message }); }
-});
-
-// Add Member with rotation, FloodWait handling & verification
-let accountIndex = 0;
+// Add member with rotation, skip FloodWait, verify join
 app.post('/add-member', async(req,res)=>{
   try{
     const { username, user_id, targetGroup, accountId } = req.body;
-    const now = Date.now();
-
-    // Filter accounts that are not in FloodWait
-    let activeAccounts = accounts.filter(a=>!a.floodWaitUntil || a.floodWaitUntil < now);
-    if(activeAccounts.length===0){
-      return res.json({ status:"all_floodwait", reason:"All accounts in FloodWait" });
-    }
 
     let acc;
     if(accountId){
       acc = accounts.find(a=>a.id===accountId);
     } else {
-      acc = activeAccounts[accountIndex % activeAccounts.length];
-      accountIndex++;
+      acc = getAvailableAccount();
     }
 
-    const client = new TelegramClient(new StringSession(acc.session), acc.api_id, acc.api_hash, {connectionRetries:5});
-    await client.start({});
+    if(!acc){
+      return res.json({ status:"stopped", reason:"All accounts FloodWait" });
+    }
+
+    const client = await getClient(acc);
 
     const group = await client.getEntity(targetGroup);
-    let user = username ? await client.getEntity(username) : await client.getEntity(user_id);
+    let user;
+    try{
+      user = username
+        ? await client.getEntity(username)
+        : await client.getEntity(user_id);
+    }catch{
+      return res.json({
+        status:"failed",
+        accountUsed:acc.id,
+        reason:"User not accessible"
+      });
+    }
 
-    let status = "failed_not_joined", reason="unknown";
+    let status="failed_not_joined", reason="unknown";
 
     try{
       await client.invoke(new Api.channels.InviteToChannel({ channel: group, users: [user] }));
 
+      // Random delay 8–18 sec
+      const delay = Math.floor(Math.random()*10000)+8000;
+      await new Promise(r => setTimeout(r, delay));
+
       // Verify if actually joined
-      const participants = await client.getParticipants(group);
-      const joined = participants.some(p => p.id===user.id);
+      const participants = await client.getParticipants(group,{limit:2000});
+      const joined = participants.some(p=>p.id===user.id);
 
       if(joined){
         status="success";
@@ -171,32 +159,69 @@ app.post('/add-member', async(req,res)=>{
       }
 
     }catch(errAdd){
-      if(errAdd.message.includes("FLOOD_WAIT")){
+
+      if(errAdd.message.includes("USER_ALREADY_PARTICIPANT")){
+        status="failed"; reason="Already member";
+      }
+      else if(errAdd.message.includes("USER_PRIVACY_RESTRICTED")){
+        status="failed"; reason="User privacy restricted";
+      }
+      else if(errAdd.message.includes("PEER_FLOOD")){
+        status="failed"; reason="Peer flood limit";
+      }
+      else if(errAdd.message.includes("FLOOD_WAIT")){
         const m = errAdd.message.match(/FLOOD_WAIT_(\d+)/);
         if(m){
           const waitSeconds = Number(m[1]);
           const floodUntil = Date.now() + waitSeconds*1000;
-          const floodDate = new Date(floodUntil);
-          const options = { weekday: 'short', year:'numeric', month:'short', day:'numeric',
-                            hour:'numeric', minute:'numeric', second:'numeric', hour12:true };
-          const floodDateStr = floodDate.toLocaleString('en-US', options);
+          acc.floodWaitUntil = floodUntil;
+          acc.status="floodwait";
 
+          const floodDateStr = new Date(floodUntil).toLocaleString();
           await update(ref(db,`accounts/${acc.id}`),{
             status:"floodwait",
             floodWaitUntil:floodUntil,
-            floodWaitDate: floodDateStr
+            floodWaitDate:floodDateStr
           });
+
           status="failed";
-          reason = `FloodWait until ${floodDateStr}`;
+          reason=`FloodWait until ${floodDateStr}`;
         }
       } else {
-        reason = errAdd.message;
+        status="failed";
+        reason=errAdd.message;
       }
     }
 
-    await push(ref(db,'history'),{ username, user_id, status, accountUsed:acc.id, reason, timestamp:Date.now() });
-    await client.disconnect();
+    await push(ref(db,'history'),{
+      username, user_id, status,
+      accountUsed:acc.id, reason, timestamp:Date.now()
+    });
+
     res.json({ status, accountUsed:acc.id, reason });
+
+  }catch(err){ res.status(500).json({ error:err.message }); }
+});
+
+// Fetch members
+app.post('/members', async(req,res)=>{
+  try{
+    const { group } = req.body;
+    const now = Date.now();
+    const acc = getAvailableAccount();
+    if(!acc) return res.status(500).json({error:"All accounts in FloodWait"});
+
+    const client = await getClient(acc);
+    const entity = await client.getEntity(group);
+    const participants = await client.getParticipants(entity,{limit:2000});
+    const members = participants.filter(p=>!p.bot).map(p=>({
+      user_id:p.id,
+      username:p.username,
+      avatar:`https://t.me/i/userpic/320/${p.id}.jpg`
+    }));
+
+    res.json(members);
+
   }catch(err){ res.status(500).json({ error:err.message }); }
 });
 
@@ -209,7 +234,7 @@ app.get('/history', async(req,res)=>{
 // Serve frontend
 const __filename=fileURLToPath(import.meta.url);
 const __dirname=path.dirname(__filename);
-app.get('/', (req,res) => res.sendFile(path.join(__dirname,'index.html')));
+app.get('/', (req,res)=>res.sendFile(path.join(__dirname,'index.html')));
 
 // Start server
 const PORT = process.env.PORT || 3000;
