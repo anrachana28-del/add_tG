@@ -20,7 +20,26 @@ button:hover{background:#00cc66;color:#fff;}
 .btn-group button:hover{background:#00ff7f;color:#0f0f10;}
 .success{color:#00ff7f;font-weight:700;}
 .failed{color:#ff4c4c;font-weight:700;}
-.floodwait{color:#ffcc00;font-weight:700;}
+
+.floodwait {
+  background: #ffcc00;
+  color: #000;
+  font-weight: 700;
+  border-radius: 6px;
+  animation: blink 1.5s infinite;
+}
+
+@keyframes blink {
+  0%, 50%, 100% { opacity: 1; }
+  25%, 75% { opacity: 0.5; }
+}
+
+
+
+
+
+
+
 .avatar{width:28px;height:28px;border-radius:50%;margin-right:8px;}
 ul{list-style:none;padding:0;margin-top:10px;max-height:400px;overflow-y:auto;}
 li{padding:8px;border-bottom:1px solid rgba(255,255,255,0.05);display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap;}
@@ -49,13 +68,20 @@ th{background:#11141f;color:#00ff7f;}
 
 <!-- Accounts -->
 <section id="accountsPage" class="page active">
-<div class="card-title">Accounts Status</div>
-<div class="table-responsive">
-<table>
-<thead><tr><th>ID</th><th>Phone</th><th>Status</th><th>FloodWait</th></tr></thead>
-<tbody id="accountsTable"></tbody>
-</table>
-</div>
+  <div class="card-title">Accounts Status</div>
+  <div class="table-responsive">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Phone</th>
+          <th>Status</th>
+          <th>FloodWait</th>
+        </tr>
+      </thead>
+      <tbody id="accountsTable"></tbody>
+    </table>
+  </div>
 </section>
 
 <!-- Auto Add -->
@@ -103,30 +129,53 @@ document.querySelectorAll(".nav-btn").forEach(btn=>{
 });
 
 // Accounts Table + FloodWait Countdown
-const accountsTable=document.getElementById("accountsTable");
-async function fetchAccounts(){
-  try{
-    const res = await fetch("/account-status"); if(!res.ok) return;
-    const data = await res.json(); accountsTable.innerHTML="";
+const accountsTable = document.getElementById("accountsTable");
+
+async function fetchAccounts() {
+  try {
+    const res = await fetch("/account-status");
+    if (!res.ok) return;
+    const data = await res.json();
+    accountsTable.innerHTML = "";
     const now = Date.now();
-    Object.keys(data).forEach(id=>{
+
+    Object.keys(data).forEach(id => {
       const acc = data[id];
-      let flood="-"; let disabled=false;
-      if(acc.floodWaitUntil){ 
-        let r=Math.floor((acc.floodWaitUntil-now)/1000);
-        if(r>0){
-          let d=new Date(acc.floodWaitUntil); 
-          flood=`${d.toLocaleDateString()} ${d.toLocaleTimeString()} (${Math.floor(r/60)}m ${r%60}s)`;
-          disabled=true;
-        }else acc.status="active";
+      let flood = "-";
+      let isFlood = false;
+
+      if (acc.floodWaitUntil) {
+        const remaining = Math.floor((acc.floodWaitUntil - now) / 1000);
+        if (remaining > 0) {
+          const d = new Date(acc.floodWaitUntil);
+          flood = `${d.toLocaleDateString()} ${d.toLocaleTimeString()} (${Math.floor(remaining/60)}m ${remaining%60}s)`;
+          isFlood = true;
+        } else {
+          acc.status = "active";
+        }
       }
-      accountsTable.innerHTML+=`<tr class="${disabled?'floodwait':''}"><td>${id}</td><td>${acc.phone}</td><td>${acc.status}</td><td>${flood}</td></tr>`;
+
+      // Add row with flood class if blocked
+      const tr = document.createElement("tr");
+      if (isFlood) tr.classList.add("floodwait");
+      tr.innerHTML = `
+        <td>${id}</td>
+        <td>${acc.phone}</td>
+        <td>${acc.status}</td>
+        <td>${flood}</td>
+      `;
+      accountsTable.appendChild(tr);
     });
-  }catch(e){console.log(e);}
+  } catch (e) {
+    console.log(e);
+  }
 }
-setInterval(fetchAccounts,1000); fetchAccounts();
+
+setInterval(fetchAccounts, 1000);
+fetchAccounts();
 
 // Accounts dropdown
+
 const accountSelect = document.getElementById("accountSelect");
 async function loadAccountsDropdown(){
   try{
@@ -159,7 +208,8 @@ uploadBtn.onclick=async()=>{
 
 // Auto Add Members with FloodWait and switch logic
 const autoAddList=document.getElementById("autoAddList"), counter=document.getElementById("autoAddCounter"), progress=document.getElementById("autoAddProgress"), autoAddStatus=document.getElementById("autoAddStatus"), loading=document.getElementById("loading");
-
+loading.style.display="none";
+let floodTimers = {};
 startAutoAddBtn.onclick=async()=>{
   const source=sourceGroupInput.value.trim(), target=targetGroupInput.value.trim();
   if(!source||!target) return alert("Enter groups");
