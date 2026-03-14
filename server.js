@@ -4,299 +4,389 @@ import { initializeApp } from 'firebase/app'
 import { getDatabase, ref, update, get, push } from 'firebase/database'
 import { TelegramClient, Api } from 'telegram'
 import { StringSession } from 'telegram/sessions/index.js'
-import { WebSocketServer } from 'ws'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
 const app = express()
 app.use(express.json())
 
-/* =========================
+/* ======================
    FIREBASE
-========================= */
+====================== */
 
 const firebaseConfig = {
-  apiKey: process.env.FIREBASE_API_KEY,
-  authDomain: process.env.FIREBASE_AUTH_DOMAIN,
-  databaseURL: process.env.FIREBASE_DB_URL
+ apiKey: process.env.FIREBASE_API_KEY,
+ authDomain: process.env.FIREBASE_AUTH_DOMAIN,
+ databaseURL: process.env.FIREBASE_DB_URL
 }
 
 initializeApp(firebaseConfig)
 const db = getDatabase()
 
-/* =========================
-   LOAD TELEGRAM ACCOUNTS
-========================= */
+/* ======================
+   LOAD ACCOUNTS
+====================== */
 
 const accounts = []
+const clients = {}
 
-let i = 1
-while (process.env[`TG_ACCOUNT_${i}_PHONE`]) {
+let i=1
 
-  const api_id = Number(process.env[`TG_ACCOUNT_${i}_API_ID`])
-  const api_hash = process.env[`TG_ACCOUNT_${i}_API_HASH`]
-  const session = process.env[`TG_ACCOUNT_${i}_SESSION`]
-  const phone = process.env[`TG_ACCOUNT_${i}_PHONE`]
+while(process.env[`TG_ACCOUNT_${i}_PHONE`]){
 
-  accounts.push({
-    id:`TG_ACCOUNT_${i}`,
-    phone,
-    api_id,
-    api_hash,
-    session,
-    status:"pending",
-    floodWaitUntil:null
+ const api_id = Number(process.env[`TG_ACCOUNT_${i}_API_ID`])
+ const api_hash = process.env[`TG_ACCOUNT_${i}_API_HASH`]
+ const session = process.env[`TG_ACCOUNT_${i}_SESSION`]
+ const phone = process.env[`TG_ACCOUNT_${i}_PHONE`]
+
+ if(!api_id || !api_hash || !session){
+  console.log(`skip invalid ${phone}`)
+  i++
+  continue
+ }
+
+ accounts.push({
+  phone,
+  api_id,
+  api_hash,
+  session,
+  id:`TG_ACCOUNT_${i}`,
+  status:"pending",
+  floodWaitUntil:null
+ })
+
+ i++
+}
+
+/* ======================
+   CREATE CLIENT
+====================== */
+
+async function getClient(account){
+
+ if(clients[account.id]) return clients[account.id]
+
+ const client = new TelegramClient(
+  new StringSession(account.session),
+  account.api_id,
+  account.api_hash,
+  {connectionRetries:5}
+ )
+
+ await client.start({})
+
+ clients[account.id]=client
+
+ return client
+}
+
+/* ======================
+   PARSE FLOOD WAIT
+====================== */
+
+function parseFlood(err){
+
+ const msg = err.message || ""
+
+ const m1 = msg.match(/FLOOD_WAIT_(\d+)/)
+ const m2 = msg.match(/wait of (\d+) seconds/i)
+
+ if(m1) return Number(m1[1])
+ if(m2) return Number(m2[1])
+
+ return null
+}
+
+/* ======================
+   ACCOUNT CHECK
+====================== */
+
+async function checkTGAccount(account){
+
+ try{
+
+  const client = await getClient(account)
+
+  await client.getMe()
+
+  account.status="active"
+
+  await update(ref(db,`accounts/${account.id}`),{
+   status:"active",
+   phone:account.phone,
+   lastChecked:Date.now(),
+   floodWaitUntil:null
   })
 
-  i++
-}
+ }catch(err){
 
-/* =========================
-   TELEGRAM CLIENT
-========================= */
+  const wait = parseFlood(err)
 
-async function createClient(acc){
+  let status="error"
+  let floodUntil=null
 
-  const client = new TelegramClient(
-    new StringSession(acc.session),
-    acc.api_id,
-    acc.api_hash,
-    { connectionRetries:5 }
-  )
-
-  await client.start({})
-  return client
-}
-
-/* =========================
-   ACCOUNT HEALTH CHECK
-========================= */
-
-async function checkAccount(acc){
-
-  let client
-
-  try{
-
-    client = await createClient(acc)
-
-    await client.getMe()
-
-    acc.status="active"
-
-    await update(ref(db,`accounts/${acc.id}`),{
-      phone:acc.phone,
-      status:"active",
-      lastChecked:Date.now()
-    })
-
-    sendLog("info",`${acc.phone} active`)
-
-  }catch(err){
-
-    acc.status="error"
-
-    await update(ref(db,`accounts/${acc.id}`),{
-      status:"error",
-      error:err.message,
-      lastChecked:Date.now()
-    })
-
-    sendLog("error",`${acc.phone} error ${err.message}`)
-
-  }finally{
-
-    if(client) await client.disconnect()
-
+  if(wait){
+   status="floodwait"
+   floodUntil = Date.now()+wait*1000
+   account.floodWaitUntil=floodUntil
   }
 
+  await update(ref(db,`accounts/${account.id}`),{
+   status,
+   error:err.message,
+   phone:account.phone,
+   floodWaitUntil:floodUntil,
+   lastChecked:Date.now()
+  })
+
+ }
+
 }
 
-/* =========================
+/* ======================
    AUTO CHECK
-========================= */
+====================== */
 
 async function autoCheck(){
 
-  for(const acc of accounts){
+ for(const acc of accounts){
 
-    await checkAccount(acc)
+  await checkTGAccount(acc)
 
-    await new Promise(r=>setTimeout(r,3000))
+  await new Promise(r=>setTimeout(r,2000))
 
-  }
+ }
 
 }
 
 setInterval(autoCheck,60000)
-
 autoCheck()
 
-/* =========================
-   MEMBER SCRAPER
-========================= */
+/* ======================
+   SCRAPE MEMBERS (10k+)
+====================== */
 
 app.post('/members', async(req,res)=>{
 
+ try{
+
+  const {group} = req.body
+
+  const acc = accounts.find(a=>!a.floodWaitUntil || a.floodWaitUntil<Date.now())
+
+  if(!acc) return res.json({error:"no active account"})
+
+  const client = await getClient(acc)
+
+  const entity = await client.getEntity(group)
+
+  let offset=0
+  const limit=200
+  let all=[]
+
+  while(true){
+
+   const participants = await client.getParticipants(entity,{
+    limit,
+    offset
+   })
+
+   if(participants.length===0) break
+
+   all = all.concat(participants)
+
+   offset += participants.length
+
+  }
+
+  const members = all
+  .filter(p=>!p.bot)
+  .map(p=>({
+   user_id:p.id,
+   username:p.username,
+   avatar:`https://t.me/i/userpic/320/${p.id}.jpg`
+  }))
+
+  res.json(members)
+
+ }catch(err){
+
+  res.json({error:err.message})
+
+ }
+
+})
+
+/* ======================
+   ADD MEMBER
+====================== */
+
+let accountIndex=0
+
+app.post('/add-member', async(req,res)=>{
+
+ try{
+
+  const {username,user_id,targetGroup}=req.body
+
+  const now = Date.now()
+
+  const activeAccounts = accounts.filter(a=>!a.floodWaitUntil || a.floodWaitUntil<now)
+
+  if(activeAccounts.length===0){
+
+   return res.json({
+    status:"all_floodwait"
+   })
+
+  }
+
+  const acc = activeAccounts[accountIndex % activeAccounts.length]
+
+  accountIndex++
+
+  const client = await getClient(acc)
+
+  const group = await client.getEntity(targetGroup)
+
+  const user = username
+   ? await client.getEntity(username)
+   : await client.getEntity(user_id)
+
+  let status="failed"
+  let reason="unknown"
+
   try{
 
-    const { group } = req.body
+   await client.invoke(
+    new Api.channels.InviteToChannel({
+     channel:group,
+     users:[user]
+    })
+   )
 
-    const acc = accounts[0]
+   status="success"
+   reason="joined"
 
-    const client = await createClient(acc)
+  }catch(err){
 
-    const entity = await client.getEntity(group)
+   const wait = parseFlood(err)
 
-    const participants = await client.getParticipants(entity,{
-      limit:2000
+   if(wait){
+
+    const until = Date.now()+wait*1000
+
+    acc.floodWaitUntil = until
+    acc.status="floodwait"
+
+    await update(ref(db,`accounts/${acc.id}`),{
+     status:"floodwait",
+     floodWaitUntil:until
     })
 
-    const members = participants.map(p=>({
+    reason=`FloodWait ${wait}s`
 
-      user_id:p.id,
-      username:p.username,
-      bot:p.bot || false,
-      avatar:`https://t.me/i/userpic/320/${p.id}.jpg`
+   }else{
 
-    }))
+    reason=err.message
 
-    await client.disconnect()
-
-    sendLog("info",`scraped ${members.length} members from ${group}`)
-
-    res.json(members)
-
-  }catch(err){
-
-    sendLog("error",err.message)
-
-    res.status(500).json({error:err.message})
+   }
 
   }
 
+  await push(ref(db,'history'),{
+   username,
+   user_id,
+   status,
+   reason,
+   accountUsed:acc.id,
+   timestamp:Date.now()
+  })
+
+  res.json({
+   status,
+   reason,
+   accountUsed:acc.id
+  })
+
+ }catch(err){
+
+  res.json({error:err.message})
+
+ }
+
 })
 
-/* =========================
-   AUTO JOIN GROUP
-========================= */
+/* ======================
+   ACCOUNT STATUS
+====================== */
 
-app.post('/join-group', async(req,res)=>{
+app.get('/account-status',async(req,res)=>{
 
-  try{
+ const snap = await get(ref(db,'accounts'))
 
-    const { group } = req.body
+ const now = Date.now()
 
-    const acc = accounts[0]
+ const data = snap.val() || {}
 
-    const client = await createClient(acc)
+ for(const id in data){
 
-    await client.invoke(
+  const a = data[id]
 
-      new Api.channels.JoinChannel({
-        channel:group
-      })
+  if(a.floodWaitUntil){
 
-    )
+   const remain = a.floodWaitUntil-now
 
-    await client.disconnect()
+   if(remain>0){
 
-    sendLog("success",`${acc.phone} joined ${group}`)
+    a.countdown = remain
 
-    res.json({success:true})
+    a.readyTime = new Date(a.floodWaitUntil)
+    .toLocaleTimeString('en-US',{hour12:true})
 
-  }catch(err){
-
-    sendLog("error",err.message)
-
-    res.json({success:false})
+   }
 
   }
 
-})
+ }
 
-/* =========================
-   ACCOUNT STATUS API
-========================= */
-
-app.get('/account-status', async(req,res)=>{
-
-  const snap = await get(ref(db,'accounts'))
-
-  res.json(snap.val() || {})
+ res.json(data)
 
 })
 
-/* =========================
+/* ======================
    HISTORY
-========================= */
+====================== */
 
 app.get('/history', async(req,res)=>{
 
-  const snap = await get(ref(db,'history'))
+ const snap = await get(ref(db,'history'))
 
-  res.json(snap.val() || {})
-
-})
-
-/* =========================
-   EXPORT JSON
-========================= */
-
-app.get('/export', async(req,res)=>{
-
-  const snap = await get(ref(db,'history'))
-
-  const data = snap.val() || {}
-
-  res.setHeader("Content-Disposition","attachment; filename=history.json")
-
-  res.send(JSON.stringify(data,null,2))
+ res.json(snap.val() || {})
 
 })
 
-/* =========================
-   SERVE DASHBOARD
-========================= */
+/* ======================
+   FRONTEND
+====================== */
 
-const __filename = fileURLToPath(import.meta.url)
-
-const __dirname = path.dirname(__filename)
+const __filename=fileURLToPath(import.meta.url)
+const __dirname=path.dirname(__filename)
 
 app.get('/',(req,res)=>{
 
-  res.sendFile(path.join(__dirname,'index.html'))
+ res.sendFile(path.join(__dirname,'index.html'))
 
 })
 
-/* =========================
-   WEBSOCKET LOGS
-========================= */
+/* ======================
+   SERVER
+====================== */
 
-const server = app.listen(process.env.PORT || 3000, ()=>{
+const PORT = process.env.PORT || 3000
 
-  console.log("🚀 Server started")
+app.listen(PORT,()=>{
+
+ console.log(`🚀 Server running on ${PORT}`)
 
 })
-
-const wss = new WebSocketServer({ server })
-
-function sendLog(type,message){
-
-  const data = JSON.stringify({
-    type,
-    message,
-    time:new Date().toLocaleTimeString()
-  })
-
-  wss.clients.forEach(client=>{
-
-    if(client.readyState === 1){
-
-      client.send(data)
-
-    }
-
-  })
-
-}
