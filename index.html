@@ -130,46 +130,58 @@ document.querySelectorAll(".nav-btn").forEach(btn=>{
 
 // Accounts Table + FloodWait Countdown
 const accountsTable = document.getElementById("accountsTable");
-
+// Format FloodWait with color
+function formatFloodWait(seconds, timestamp){
+  if(seconds<=0) return `<span style="color:#00ff7f">00:00:00</span>`;
+  const color = seconds<=60 ? "#ff4c4c" : "#ffcc00"; // red if <1min, yellow otherwise
+  return `<span style="color:${color}">${formatCountdown(seconds)} (${formatTime(timestamp)})</span>`;
+}
+// Accounts Table
 async function fetchAccounts() {
   try {
     const res = await fetch("/account-status");
-    if (!res.ok) return;
+    if(!res.ok) return;
     const data = await res.json();
-    accountsTable.innerHTML = "";
+    accountsTable.innerHTML="";
     const now = Date.now();
 
-    Object.keys(data).forEach(id => {
+    Object.keys(data).forEach(id=>{
       const acc = data[id];
-      let flood = "-";
-      let isFlood = false;
+      let floodText = formatFloodWait(0,0), isFlood=false;
 
-      if (acc.floodWaitUntil) {
-        const remaining = Math.floor((acc.floodWaitUntil - now) / 1000);
-        if (remaining > 0) {
-          const d = new Date(acc.floodWaitUntil);
-          flood = `${d.toLocaleDateString()} ${d.toLocaleTimeString()} (${Math.floor(remaining/60)}m ${remaining%60}s)`;
-          isFlood = true;
+      if(acc.floodWaitUntil){
+        const remaining = Math.floor((acc.floodWaitUntil - now)/1000);
+        if(remaining>0){
+          floodText = formatFloodWait(remaining, acc.floodWaitUntil);
+          isFlood=true;
         } else {
-          acc.status = "active";
+          floodText = formatFloodWait(0, acc.floodWaitUntil);
         }
+      } else {
+        floodText = formatFloodWait(0,0);
       }
 
-      // Add row with flood class if blocked
-      const tr = document.createElement("tr");
-      if (isFlood) tr.classList.add("floodwait");
-      tr.innerHTML = `
-        <td>${id}</td>
-        <td>${acc.phone}</td>
-        <td>${acc.status}</td>
-        <td>${flood}</td>
-      `;
+      const lastChecked = acc.lastChecked ? formatTime(acc.lastChecked) : "-";
+      const tr=document.createElement("tr");
+      if(isFlood) tr.classList.add("floodwait");
+      tr.innerHTML=`<td>${id}</td><td>${acc.phone}</td><td>${acc.status}</td><td>${floodText}</td><td>${lastChecked}</td>`;
       accountsTable.appendChild(tr);
     });
-  } catch (e) {
-    console.log(e);
-  }
+  } catch(e){ console.log(e); }
 }
+// AutoAdd FloodWait Status
+const floodInterval=setInterval(()=>{
+  const now=Date.now();
+  Object.keys(accData).forEach(id=>{
+    const acc=accData[id];
+    let floodText="-";
+    if(acc.floodWaitUntil && acc.floodWaitUntil>now){
+      const r=Math.floor((acc.floodWaitUntil-now)/1000);
+      floodText = formatFloodWait(r, acc.floodWaitUntil);
+      accData[id].floodText=floodText;
+    } else accData[id].floodText=null;
+  });
+},1000);
 
 setInterval(fetchAccounts, 1000);
 fetchAccounts();
