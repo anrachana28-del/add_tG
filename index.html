@@ -20,26 +20,8 @@ button:hover{background:#00cc66;color:#fff;}
 .btn-group button:hover{background:#00ff7f;color:#0f0f10;}
 .success{color:#00ff7f;font-weight:700;}
 .failed{color:#ff4c4c;font-weight:700;}
-
-.floodwait {
-  background: #ffcc00;
-  color: #000;
-  font-weight: 700;
-  border-radius: 6px;
-  animation: blink 1.5s infinite;
-}
-
-@keyframes blink {
-  0%, 50%, 100% { opacity: 1; }
-  25%, 75% { opacity: 0.5; }
-}
-
-
-
-
-
-
-
+.floodwait { animation: blink 1.5s infinite; font-weight:700; }
+@keyframes blink { 0%,50%,100% {opacity:1;} 25%,75% {opacity:0.5;} }
 .avatar{width:28px;height:28px;border-radius:50%;margin-right:8px;}
 ul{list-style:none;padding:0;margin-top:10px;max-height:400px;overflow-y:auto;}
 li{padding:8px;border-bottom:1px solid rgba(255,255,255,0.05);display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap;}
@@ -77,6 +59,7 @@ th{background:#11141f;color:#00ff7f;}
           <th>Phone</th>
           <th>Status</th>
           <th>FloodWait</th>
+          <th>Last Checked</th>
         </tr>
       </thead>
       <tbody id="accountsTable"></tbody>
@@ -128,76 +111,59 @@ document.querySelectorAll(".nav-btn").forEach(btn=>{
   document.getElementById(btn.dataset.page).classList.add("active");}
 });
 
-// Accounts Table + FloodWait Countdown
-const accountsTable = document.getElementById("accountsTable");
-// Format FloodWait with color
+// Utilities
+function formatTime(ts){ return new Date(ts).toLocaleString(); }
+function formatCountdown(sec){
+  const h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60), s=sec%60;
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
 function formatFloodWait(seconds, timestamp){
-  if(seconds<=0) return `<span style="color:#00ff7f">00:00:00</span>`;
-  const color = seconds<=60 ? "#ff4c4c" : "#ffcc00"; // red if <1min, yellow otherwise
+  if(seconds<=0) return `<span style="color:#00ff7f">-</span>`;
+  const color=seconds<=60 ? "#ff4c4c" : "#ffcc00";
   return `<span style="color:${color}">${formatCountdown(seconds)} (${formatTime(timestamp)})</span>`;
 }
+
 // Accounts Table
-async function fetchAccounts() {
-  try {
+const accountsTable = document.getElementById("accountsTable");
+async function fetchAccounts(){
+  try{
     const res = await fetch("/account-status");
     if(!res.ok) return;
     const data = await res.json();
     accountsTable.innerHTML="";
-    const now = Date.now();
-
+    const now=Date.now();
     Object.keys(data).forEach(id=>{
       const acc = data[id];
       let floodText = formatFloodWait(0,0), isFlood=false;
-
       if(acc.floodWaitUntil){
-        const remaining = Math.floor((acc.floodWaitUntil - now)/1000);
-        if(remaining>0){
-          floodText = formatFloodWait(remaining, acc.floodWaitUntil);
-          isFlood=true;
-        } else {
-          floodText = formatFloodWait(0, acc.floodWaitUntil);
-        }
-      } else {
-        floodText = formatFloodWait(0,0);
+        const remaining=Math.floor((acc.floodWaitUntil-now)/1000);
+        floodText=formatFloodWait(remaining, acc.floodWaitUntil);
+        if(remaining>0) isFlood=true;
       }
-
       const lastChecked = acc.lastChecked ? formatTime(acc.lastChecked) : "-";
       const tr=document.createElement("tr");
       if(isFlood) tr.classList.add("floodwait");
       tr.innerHTML=`<td>${id}</td><td>${acc.phone}</td><td>${acc.status}</td><td>${floodText}</td><td>${lastChecked}</td>`;
       accountsTable.appendChild(tr);
     });
-  } catch(e){ console.log(e); }
+  }catch(e){console.log(e);}
 }
-// AutoAdd FloodWait Status
-const floodInterval=setInterval(()=>{
-  const now=Date.now();
-  Object.keys(accData).forEach(id=>{
-    const acc=accData[id];
-    let floodText="-";
-    if(acc.floodWaitUntil && acc.floodWaitUntil>now){
-      const r=Math.floor((acc.floodWaitUntil-now)/1000);
-      floodText = formatFloodWait(r, acc.floodWaitUntil);
-      accData[id].floodText=floodText;
-    } else accData[id].floodText=null;
-  });
-},1000);
-
-setInterval(fetchAccounts, 1000);
+setInterval(fetchAccounts,1000);
 fetchAccounts();
 
 // Accounts dropdown
-
-const accountSelect = document.getElementById("accountSelect");
+const accountSelect=document.getElementById("accountSelect");
 async function loadAccountsDropdown(){
   try{
-    const res = await fetch("/account-status"); if(!res.ok) return; const data = await res.json();
-    const now = Date.now(); accountSelect.innerHTML="";
+    const res = await fetch("/account-status"); if(!res.ok) return;
+    const data=await res.json();
+    const now=Date.now(); accountSelect.innerHTML="";
     Object.keys(data).forEach(id=>{
-      const acc = data[id]; let disabled=false;
-      if(acc.floodWaitUntil && acc.floodWaitUntil > now) disabled=true;
+      const acc=data[id]; let disabled=false;
+      if(acc.floodWaitUntil && acc.floodWaitUntil>now) disabled=true;
       const option=document.createElement("option"); option.value=id;
-      option.text=`${acc.phone} (${acc.status}${disabled?' - FloodWait':''})`; if(disabled) option.disabled=true;
+      option.text=`${acc.phone} (${acc.status}${disabled?' - FloodWait':''})`;
+      if(disabled) option.disabled=true;
       accountSelect.appendChild(option);
     });
   }catch(e){console.log(e);}
@@ -209,19 +175,18 @@ addAccountBtn.onclick=async()=>{
   const phone=phoneInput.value.trim(), api_id=apiIdInput.value.trim(), api_hash=apiHashInput.value.trim(), session=sessionInput.value.trim();
   if(!phone||!api_id||!api_hash||!session){alert("All fields required"); return;}
   const res=await fetch("/add-account",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({phone,api_id,api_hash,session})});
-  const data = await res.json(); uploadStats.innerText=data.success?"Added":"Failed";
+  const data=await res.json(); uploadStats.innerText=data.success?"Added":"Failed";
 };
 uploadBtn.onclick=async()=>{
   const file=document.getElementById("file").files[0]; if(!file)return alert("Select file");
   const txt=await file.text();
   const res=await fetch("/upload-accounts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({accounts:txt})});
-  const data = await res.json(); uploadStats.innerText=data.success?"Uploaded":"Failed";
+  const data=await res.json(); uploadStats.innerText=data.success?"Uploaded":"Failed";
 };
 
-// Auto Add Members with FloodWait and switch logic
+// Auto Add Members
 const autoAddList=document.getElementById("autoAddList"), counter=document.getElementById("autoAddCounter"), progress=document.getElementById("autoAddProgress"), autoAddStatus=document.getElementById("autoAddStatus"), loading=document.getElementById("loading");
-loading.style.display="none";
-let floodTimers = {};
+loading.style.display="none"; let floodTimers={};
 startAutoAddBtn.onclick=async()=>{
   const source=sourceGroupInput.value.trim(), target=targetGroupInput.value.trim();
   if(!source||!target) return alert("Enter groups");
@@ -243,14 +208,12 @@ startAutoAddBtn.onclick=async()=>{
 
   const floodInterval=setInterval(()=>{
     const now=Date.now();
-    let anyAvailable=false;
     Object.keys(accData).forEach(id=>{
       const acc=accData[id];
       if(acc.floodWaitUntil && acc.floodWaitUntil>now){
         let r=Math.floor((acc.floodWaitUntil-now)/1000);
-        let d=new Date(acc.floodWaitUntil);
-        floodTimers[id]=`${d.toLocaleDateString()} ${d.toLocaleTimeString()} (${Math.floor(r/60)}m ${r%60}s)`;
-      }else floodTimers[id]=null;
+        floodTimers[id]=formatFloodWait(r, acc.floodWaitUntil);
+      } else floodTimers[id]=null;
     });
     const nextAccIdx=getNextAvailableAccount(accIndex);
     if(nextAccIdx===-1){
@@ -258,7 +221,7 @@ startAutoAddBtn.onclick=async()=>{
       clearInterval(floodInterval); return;
     }else{
       let currentAcc=accounts[nextAccIdx];
-      if(floodTimers[currentAcc]) autoAddStatus.innerText=`Next account ${currentAcc} blocked until ${floodTimers[currentAcc]}`;
+      if(floodTimers[currentAcc]) autoAddStatus.innerHTML=`Next account ${currentAcc} blocked until ${floodTimers[currentAcc]}`;
     }
   },1000);
 
