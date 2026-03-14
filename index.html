@@ -210,66 +210,169 @@ const autoAddStatus=document.getElementById("autoAddStatus");
 const loading=document.getElementById("loading");
 loading.style.display="none";
 
-startAutoAddBtn.onclick=async()=>{
-  const source=sourceGroupInput.value.trim(), target=targetGroupInput.value.trim();
-  if(!source||!target) return alert("Enter source and target groups");
-  loading.style.display="block";
-  const res=await fetch("/members",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({group:source})});
-  const members=await res.json();
-  loading.style.display="none";
-  autoAddList.innerHTML="";
-  counter.innerText=`0 / ${members.length}`;
-  progress.style.width="0%";
+startAutoAddBtn.onclick = async () => {
+  const source = sourceGroupInput.value.trim(),
+        target = targetGroupInput.value.trim();
+  if(!source || !target) return alert("Enter source and target groups");
 
-  const accRes=await fetch("/account-status"); const accData=await accRes.json();
-  const accounts=Object.keys(accData);
-  let accIndex=0, processed=0;
+  loading.style.display = "block";
+  const res = await fetch("/members", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({group:source})
+  });
+  const members = await res.json(); // [{username, user_id, avatar}]
+  loading.style.display = "none";
+
+  autoAddList.innerHTML="";
+  counter.innerText = `0 / ${members.length}`;
+  progress.style.width = "0%";
+
+  // load accounts
+  const accRes = await fetch("/account-status"); 
+  const accData = await accRes.json();
+  const accounts = Object.keys(accData);
+  let accIndex = 0, processed = 0;
+
+  // load history once
+  const historyRes = await fetch("/get-history"); // return array of {user_id, username}
+  const history = await historyRes.json();
+  const historySet = new Set(history.map(h => h.user_id || h.username));
 
   function getNextAvailableAccount(startIndex){
-    const now=Date.now();
+    const now = Date.now();
     for(let i=0;i<accounts.length;i++){
       let idx=(startIndex+i)%accounts.length;
-      const acc=accData[accounts[idx]];
-      if(!acc.floodWaitUntil || acc.floodWaitUntil<=now) return idx;
+      const acc = accData[accounts[idx]];
+      if(!acc.floodWaitUntil || acc.floodWaitUntil <= now) return idx;
     }
     return -1;
   }
 
-  const floodInterval=setInterval(()=>{
-    const now=Date.now();
-    let nextAccIdx=getNextAvailableAccount(accIndex);
-    if(nextAccIdx===-1){
-      autoAddStatus.innerText="All accounts in FloodWait. Waiting...";
+  const floodInterval = setInterval(()=>{
+    const now = Date.now();
+    let nextAccIdx = getNextAvailableAccount(accIndex);
+    if(nextAccIdx === -1){
+      autoAddStatus.innerText = "All accounts in FloodWait. Waiting...";
       return;
     }
-    const acc=accounts[nextAccIdx]; 
-    const fAcc=accData[acc];
+    const acc = accounts[nextAccIdx]; 
+    const fAcc = accData[acc];
     if(fAcc.floodWaitUntil && fAcc.floodWaitUntil>now){
-      let r=Math.floor((fAcc.floodWaitUntil-now)/1000);
-      let d=new Date(fAcc.floodWaitUntil);
-      autoAddStatus.innerText=`Next account ${acc} blocked until ${d.toLocaleTimeString()} (${r}s left)`;
-    }else autoAddStatus.innerText=`Next account ${acc} ready`;
+      let r = Math.floor((fAcc.floodWaitUntil-now)/1000);
+      let d = new Date(fAcc.floodWaitUntil);
+      autoAddStatus.innerText = `Next account ${acc} blocked until ${d.toLocaleTimeString()} (${r}s left)`;
+    }else autoAddStatus.innerText = `Next account ${acc} ready`;
   },1000);
 
   for(const m of members){
-    let nextAccIdx=getNextAvailableAccount(accIndex);
-    while(nextAccIdx===-1){await new Promise(r=>setTimeout(r,3000)); nextAccIdx=getNextAvailableAccount(accIndex);}
-    accIndex=nextAccIdx;
-    const currentAccount=accounts[accIndex];
-    const addRes=await fetch("/add-member",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({username:m.username,user_id:m.user_id,targetGroup:target,accountId:currentAccount})});
-    const result=await addRes.json();
-    const li=document.createElement("li");
-    li.innerHTML=`<img class="avatar" src="${m.avatar}"> ${m.username||m.user_id} → <span style="color:${result.status==='success'?'#00ff7f':result.status==='failed_not_joined'?'#ffcc00':'#ff4c4c'}">${result.status}</span> by ${result.accountUsed}<br><span style="color:#ffcc00;font-size:12px;">Reason: ${result.reason||'N/A'}</span>`;
+    // skip if already added in history
+    if(historySet.has(m.user_id || m.username)){
+      const li = document.createElement("li");
+      li.innerHTML = `<img class="avatar" src="${m.avatar}"> ${m.username||m.user_id} → <span style="color:#ffcc00">skipped (already added)</span>`;
+      autoAddList.appendChild(li); autoAddList.scrollTop=autoAddList.scrollHeight;
+      processed++; counter.innerText=`${processed} / ${members.length}`;
+      progress.style.width=`${Math.floor((processed/members.length)*100)}%`;
+      continue; // skip without delay
+    }
+
+    let nextAccIdx = getNextAvailableAccount(accIndex);
+    while(nextAccIdx === -1) await new Promise(r=>setTimeout(r,3000)); // wait if all in FloodWait
+    accIndex = nextAccIdx;
+    const currentAccount = accounts[accIndex];
+
+    // Add member request
+    const addRes = await fetch("/add-member", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        username: m.username,
+        user_id: m.user_id,
+        targetGroup: target,
+        accountId: currentAccount
+      })
+    });
+    const result = await addRes.json();
+
+    // verify real join (if API returns success but not joined, mark failed_not_joined)
+    let statusText = result.status;
+    if(result.status === "success" && !result.joined){
+      statusText = "failed_not_joined";
+    }
+
+    const li = document.createElement("li");
+    li.innerHTML = `<img class="avatar" src="${m.avatar}"> ${m.username||m.user_id} → <span style="color:${statusText==='success'?'#00ff7f':statusText==='failed_not_joined'?'#ff4c4c':'#ffcc00'}">${statusText}</span> by ${result.accountUsed}<br><span style="color:#ffcc00;font-size:12px;">Reason: ${result.reason||'N/A'}</span>`;
     autoAddList.appendChild(li); autoAddList.scrollTop=autoAddList.scrollHeight;
+
+    // update counter + progress
     processed++; counter.innerText=`${processed} / ${members.length}`;
     progress.style.width=`${Math.floor((processed/members.length)*100)}%`;
-    if(result.status==="success") accIndex=(accIndex+1)%accounts.length;
+
+    if(statusText === "success") {
+      accIndex = (accIndex+1) % accounts.length;
+      historySet.add(m.user_id || m.username); // add to history immediately
+    }
   }
 
   clearInterval(floodInterval);
-  autoAddStatus.innerText="Auto Add Finished!";
+  autoAddStatus.innerText = "Auto Add Finished!";
   alert("Auto Add Finished");
+};
+
+
+
+
+
+// ===== Load History =====
+const historyList = document.getElementById("historyList");
+
+async function loadHistory(){
+  try{
+    const res = await fetch("/get-history");
+    if(!res.ok) return;
+
+    const data = await res.json();
+    historyList.innerHTML = "";
+
+    if(data.length === 0){
+      historyList.innerHTML = "<li>No history yet</li>";
+      return;
+    }
+
+    data.reverse().forEach(h=>{
+      const li = document.createElement("li");
+
+      let color = "#00ff7f";
+      if(h.status === "failed") color = "#ff4c4c";
+      if(h.status === "skipped") color = "#ffcc00";
+
+      li.innerHTML = `
+        <img class="avatar" src="${h.avatar || ''}">
+        ${h.username || h.user_id}
+        → <span style="color:${color}">${h.status}</span>
+        by ${h.account_used || '-'}
+        <br>
+        <span style="font-size:12px;color:#999;">
+          ${new Date(h.timestamp).toLocaleString()}
+        </span>
+      `;
+
+      historyList.appendChild(li);
+    });
+
+  }catch(err){
+    console.log(err);
+  }
+}
+
+// auto refresh history every 5s
+setInterval(loadHistory,5000);
+loadHistory();
+
+
+// ===== Download History =====
+document.getElementById("downloadHistoryBtn").onclick = ()=>{
+  window.location.href = "/download-history";
 };
 </script>
 </body>
