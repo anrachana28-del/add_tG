@@ -1,14 +1,14 @@
-import 'dotenv/config';
-import express from 'express';
-import { initializeApp } from 'firebase/app';
-import { getDatabase, ref, update, get, push } from 'firebase/database';
-import { TelegramClient, Api } from 'telegram';
-import { StringSession } from 'telegram/sessions/index.js';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import 'dotenv/config'
+import express from 'express'
+import { initializeApp } from 'firebase/app'
+import { getDatabase, ref, update, get, push } from 'firebase/database'
+import { TelegramClient, Api } from 'telegram'
+import { StringSession } from 'telegram/sessions/index.js'
+import path from 'path'
+import { fileURLToPath } from 'url'
 
-const app = express();
-app.use(express.json());
+const app = express()
+app.use(express.json())
 
 /* ================= FIREBASE ================= */
 
@@ -16,234 +16,212 @@ const firebaseConfig = {
   apiKey: process.env.FIREBASE_API_KEY,
   authDomain: process.env.FIREBASE_AUTH_DOMAIN,
   databaseURL: process.env.FIREBASE_DB_URL
-};
+}
 
-initializeApp(firebaseConfig);
-const db = getDatabase();
+initializeApp(firebaseConfig)
+const db = getDatabase()
 
 /* ================= ACCOUNTS ================= */
 
-const accounts = [];
-let i = 1;
+const accounts = []
+let i = 1
 
 while (process.env[`TG_ACCOUNT_${i}_PHONE`]) {
 
-  const api_id = Number(process.env[`TG_ACCOUNT_${i}_API_ID`]);
-  const api_hash = process.env[`TG_ACCOUNT_${i}_API_HASH`];
-  const session = process.env[`TG_ACCOUNT_${i}_SESSION`];
-  const phone = process.env[`TG_ACCOUNT_${i}_PHONE`];
-
-  if (!api_id || !api_hash || !session) {
-    console.log("Skipping invalid account", phone);
-    i++;
-    continue;
-  }
+  const api_id = Number(process.env[`TG_ACCOUNT_${i}_API_ID`])
+  const api_hash = process.env[`TG_ACCOUNT_${i}_API_HASH`]
+  const session = process.env[`TG_ACCOUNT_${i}_SESSION`]
+  const phone = process.env[`TG_ACCOUNT_${i}_PHONE`]
 
   accounts.push({
+    id: `TG_ACCOUNT_${i}`,
     phone,
     api_id,
     api_hash,
     session,
-    id: `TG_ACCOUNT_${i}`,
     status: "pending",
     floodWaitUntil: null
-  });
+  })
 
-  i++;
+  i++
 }
 
-/* ================= CHECK ACCOUNT ================= */
+/* ================= ACCOUNT CHECK ================= */
 
 async function checkTGAccount(account){
 
-  let client;
+let client
 
-  try{
+try{
 
-    client = new TelegramClient(
-      new StringSession(account.session),
-      account.api_id,
-      account.api_hash,
-      { connectionRetries: 5 }
-    );
+client = new TelegramClient(
+new StringSession(account.session),
+account.api_id,
+account.api_hash,
+{connectionRetries:5}
+)
 
-    await client.start({});
-    await client.getMe();
+await client.start()
+await client.getMe()
 
-    account.status = "active";
+account.status="active"
 
-    await update(ref(db, `accounts/${account.id}`),{
-      status:"active",
-      phone:account.phone,
-      lastChecked:Date.now(),
-      floodWaitUntil:null
-    });
+await update(ref(db,`accounts/${account.id}`),{
+status:"active",
+phone:account.phone,
+lastChecked:Date.now(),
+floodWaitUntil:null
+})
 
-  }catch(err){
+}catch(err){
 
-    let status="error";
-    let floodUntil=null;
+let status="error"
+let floodUntil=null
 
-    if(err.message.includes("FLOOD_WAIT")){
+if(err.message.includes("FLOOD_WAIT")){
 
-      const m = err.message.match(/FLOOD_WAIT_(\d+)/);
+const m = err.message.match(/FLOOD_WAIT_(\d+)/)
 
-      if(m){
+if(m){
 
-        const sec = Number(m[1]);
+const sec = Number(m[1])
 
-        floodUntil = Date.now() + sec*1000;
+floodUntil = Date.now()+sec*1000
 
-        status="floodwait";
+status="floodwait"
 
-        account.floodWaitUntil = floodUntil;
-      }
-    }
+account.floodWaitUntil=floodUntil
 
-    await update(ref(db,`accounts/${account.id}`),{
-      status,
-      phone:account.phone,
-      error:err.message,
-      lastChecked:Date.now(),
-      floodWaitUntil:floodUntil
-    });
+}
 
-  }finally{
+}
 
-    if(client) await client.disconnect();
+await update(ref(db,`accounts/${account.id}`),{
+status,
+phone:account.phone,
+error:err.message,
+lastChecked:Date.now(),
+floodWaitUntil:floodUntil
+})
 
-  }
+}finally{
+
+if(client) await client.disconnect()
+
+}
+
 }
 
 /* ================= AUTO CHECK ================= */
 
 async function autoCheck(){
 
-  for(const acc of accounts){
+for(const acc of accounts){
 
-    await checkTGAccount(acc);
+await checkTGAccount(acc)
 
-    await new Promise(r=>setTimeout(r,2000));
-
-  }
+await new Promise(r=>setTimeout(r,2000))
 
 }
 
-setInterval(autoCheck,60000);
+}
 
-autoCheck();
+setInterval(autoCheck,60000)
+autoCheck()
 
 /* ================= ACCOUNT STATUS ================= */
 
-app.get('/account-status', async(req,res)=>{
+app.get('/account-status',async(req,res)=>{
 
-  const snap = await get(ref(db,'accounts'));
+const snap = await get(ref(db,'accounts'))
+const data = snap.val() || {}
+const now = Date.now()
 
-  const data = snap.val() || {};
+for(const id in data){
 
-  const now = Date.now();
+const acc = data[id]
 
-  for(const id in data){
+if(acc.floodWaitUntil && acc.floodWaitUntil>now){
 
-    const acc = data[id];
+const remain = acc.floodWaitUntil-now
+acc.floodWaitCountdown = remain
 
-    if(acc.floodWaitUntil && acc.floodWaitUntil>now){
+const d = new Date(acc.floodWaitUntil)
 
-      const remain = acc.floodWaitUntil-now;
+acc.floodWaitTimeStr = d.toLocaleTimeString('en-US',{hour12:true})
 
-      acc.floodWaitCountdown = remain;
+}
 
-      const d = new Date(acc.floodWaitUntil);
+}
 
-      acc.floodWaitTimeStr = d.toLocaleTimeString('en-US',{hour12:true});
+res.json(data)
 
-    }
-
-  }
-
-  res.json(data);
-
-});
+})
 
 /* ================= ADD MEMBER ================= */
 
-let accountIndex = 0;
+let accountIndex = 0
 
 app.post('/add-member', async(req,res)=>{
 
 try{
 
-const { username, user_id, targetGroup, accountId } = req.body;
+const { username, user_id, targetGroup, accountId } = req.body
+const now = Date.now()
 
-const now = Date.now();
-
-/* -------- FILTER ACTIVE ACCOUNTS -------- */
+/* ---------- ACTIVE ACCOUNTS ---------- */
 
 const activeAccounts = accounts.filter(
-a => !a.floodWaitUntil || a.floodWaitUntil < now
-);
+a=>!a.floodWaitUntil || a.floodWaitUntil<now
+)
 
 if(activeAccounts.length===0){
 
-const nextReady = accounts.map(a=>a.floodWaitUntil||0).sort()[0];
-
-const waitDate = new Date(nextReady);
+const nextReady = accounts.map(a=>a.floodWaitUntil||0).sort()[0]
+const waitDate = new Date(nextReady)
 
 return res.json({
 status:"all_floodwait",
-message:`All accounts FloodWait until ${waitDate.toLocaleTimeString('en-US',{hour12:true})}`
-});
+reason:`All accounts FloodWait until ${waitDate.toLocaleTimeString('en-US',{hour12:true})}`
+})
 
 }
 
-/* -------- SELECT ACCOUNT -------- */
+/* ---------- SELECT ACCOUNT ---------- */
 
-let acc;
+let acc
 
 if(accountId){
 
-acc = accounts.find(a=>a.id===accountId);
-
-if(acc.floodWaitUntil && acc.floodWaitUntil>now){
-
-return res.json({
-status:"failed",
-reason:"Account in FloodWait"
-});
-
-}
+acc = accounts.find(a=>a.id===accountId)
 
 }else{
 
-acc = activeAccounts[accountIndex % activeAccounts.length];
-
-accountIndex++;
+acc = activeAccounts[accountIndex % activeAccounts.length]
+accountIndex++
 
 }
 
-/* -------- CREATE CLIENT -------- */
+/* ---------- CLIENT ---------- */
 
 const client = new TelegramClient(
 new StringSession(acc.session),
 acc.api_id,
 acc.api_hash,
 {connectionRetries:5}
-);
+)
 
-await client.start({});
+await client.start()
 
-/* -------- GET ENTITIES -------- */
-
-const group = await client.getEntity(targetGroup);
-
+const group = await client.getEntity(targetGroup)
 const user = username
 ? await client.getEntity(username)
-: await client.getEntity(user_id);
+: await client.getEntity(user_id)
 
-let status="failed";
-let reason="unknown";
+let status="failed"
+let reason="unknown"
 
-/* -------- INVITE -------- */
+/* ---------- INVITE ---------- */
 
 try{
 
@@ -252,17 +230,11 @@ new Api.channels.InviteToChannel({
 channel:group,
 users:[user]
 })
-);
+)
 
-/* -------- SAFE DELAY -------- */
+/* ---------- VERIFY ---------- */
 
-const delay = Math.floor(Math.random()*30000)+30000;
-
-await new Promise(r=>setTimeout(r,delay));
-
-/* -------- VERIFY JOIN -------- */
-
-let joined=false;
+let joined=false
 
 try{
 
@@ -271,77 +243,77 @@ new Api.channels.GetParticipant({
 channel:group,
 participant:user
 })
-);
+)
 
-joined=true;
+joined=true
 
 }catch(e){
 
-joined=false;
+joined=false
 
 }
 
 if(joined){
 
-status="success";
-reason="User joined";
+status="success"
+reason="User joined"
+
+/* DELAY ONLY SUCCESS */
+
+const delay = Math.floor(Math.random()*30000)+30000
+await new Promise(r=>setTimeout(r,delay))
 
 }else{
 
-status="failed_not_joined";
-reason="User did not join";
+status="failed"
+reason="User not joined"
 
 }
 
 }catch(errAdd){
 
-/* -------- ERRORS -------- */
-
 if(errAdd.message.includes("USER_ALREADY_PARTICIPANT")){
 
-status="failed";
-reason="Already member";
+status="already"
+reason="Member already in group"
 
 }
 
 else if(errAdd.message.includes("USER_PRIVACY_RESTRICTED")){
 
-status="failed";
-reason="User privacy restricted";
+status="failed"
+reason="User privacy restricted"
 
 }
 
 else if(errAdd.message.includes("PEER_FLOOD")){
 
-status="failed";
-reason="Peer flood limit";
+status="failed"
+reason="Peer flood limit"
 
 }
 
 else if(errAdd.message.includes("FLOOD_WAIT")){
 
-const m = errAdd.message.match(/FLOOD_WAIT_(\d+)/);
+const m = errAdd.message.match(/FLOOD_WAIT_(\d+)/)
 
 if(m){
 
-const sec = Number(m[1]);
+const sec = Number(m[1])
+const floodUntil = Date.now()+sec*1000
 
-const floodUntil = Date.now()+sec*1000;
-
-acc.floodWaitUntil = floodUntil;
-
-acc.status="floodwait";
+acc.floodWaitUntil=floodUntil
+acc.status="floodwait"
 
 await update(ref(db,`accounts/${acc.id}`),{
 status:"floodwait",
 floodWaitUntil:floodUntil
-});
+})
 
-const floodDate = new Date(floodUntil);
+const floodDate = new Date(floodUntil)
 
-status="failed";
-
-reason=`FloodWait until ${floodDate.toLocaleTimeString('en-US',{hour12:true})}`;
+status="failed"
+reason=`FloodWait until ${floodDate.toLocaleTimeString('en-US',{hour12:true})}`
 
 }
 
@@ -349,42 +321,39 @@ reason=`FloodWait until ${floodDate.toLocaleTimeString('en-US',{hour12:true})}`;
 
 else{
 
-status="failed";
-
-reason=errAdd.message;
-
-}
+status="failed"
+reason=errAdd.message
 
 }
 
-/* -------- SAVE HISTORY -------- */
+}
+
+/* ---------- SAVE HISTORY ---------- */
 
 await push(ref(db,'history'),{
-
 username,
 user_id,
 status,
 accountUsed:acc.id,
 reason,
 timestamp:Date.now()
+})
 
-});
-
-await client.disconnect();
+await client.disconnect()
 
 res.json({
 status,
 accountUsed:acc.id,
 reason
-});
+})
 
 }catch(err){
 
-res.status(500).json({error:err.message});
+res.status(500).json({error:err.message})
 
 }
 
-});
+})
 
 /* ================= FETCH MEMBERS ================= */
 
@@ -392,15 +361,14 @@ app.post('/members', async(req,res)=>{
 
 try{
 
-const { group } = req.body;
+const { group } = req.body
+const now = Date.now()
 
-const now = Date.now();
-
-const acc = accounts.find(a=>!a.floodWaitUntil || a.floodWaitUntil<now);
+const acc = accounts.find(a=>!a.floodWaitUntil || a.floodWaitUntil<now)
 
 if(!acc){
 
-return res.status(500).json({error:"All accounts FloodWait"});
+return res.status(500).json({error:"All accounts FloodWait"})
 
 }
 
@@ -409,59 +377,56 @@ new StringSession(acc.session),
 acc.api_id,
 acc.api_hash,
 {connectionRetries:5}
-);
+)
 
-await client.start({});
+await client.start()
 
-const entity = await client.getEntity(group);
+const entity = await client.getEntity(group)
 
-const participants = await client.getParticipants(entity,{limit:2000});
+const participants = await client.getParticipants(entity,{limit:2000})
 
 const members = participants
-.filter(p=>!p.bot)
+.filter(p=>!p.bot && !p.deleted)
 .map(p=>({
-
 user_id:p.id,
 username:p.username,
 avatar:`https://t.me/i/userpic/320/${p.id}.jpg`
+}))
 
-}));
+await client.disconnect()
 
-await client.disconnect();
-
-res.json(members);
+res.json(members)
 
 }catch(err){
 
-res.status(500).json({error:err.message});
+res.status(500).json({error:err.message})
 
 }
 
-});
+})
 
 /* ================= HISTORY ================= */
 
 app.get('/history', async(req,res)=>{
 
-const snap = await get(ref(db,'history'));
+const snap = await get(ref(db,'history'))
+res.json(snap.val() || {})
 
-res.json(snap.val() || {});
-
-});
+})
 
 /* ================= FRONTEND ================= */
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 app.get('/',(req,res)=>{
-res.sendFile(path.join(__dirname,'index.html'));
-});
+res.sendFile(path.join(__dirname,'index.html'))
+})
 
 /* ================= SERVER ================= */
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3000
 
 app.listen(PORT,()=>{
-console.log("Server running on port",PORT);
-});
+console.log("Server running on port",PORT)
+})
