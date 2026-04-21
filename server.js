@@ -399,7 +399,7 @@ app.post('/members', async (req, res) => {
 })
 
 // ===== Add Member =====
-app.post('/add-member', async (req, res) => {
+aapp.post('/add-member', async (req, res) => {
   try {
     let { username, user_id, access_hash, targetGroup } = req.body
 
@@ -576,7 +576,38 @@ app.post('/add-member', async (req, res) => {
     })
   }
 })
+app.post('/auto-join', async (req, res) => {
+  try {
+    const { group, account } = req.body
 
+    const acc = accounts.find(a => a.id === account)
+    if (!acc) {
+      return res.status(404).json({ error: "Account not found" })
+    }
+
+    const client = await getClient(acc)
+
+    const clean = normalizeGroup(group)
+
+    try {
+      await client.getEntity(clean)
+    } catch {
+      await client.invoke(
+        new Api.messages.ImportChatInvite({ hash: clean })
+      )
+    }
+
+    return res.json({
+      status: "joined",
+      account: acc.phone
+    })
+
+  } catch (err) {
+    return res.status(500).json({
+      error: err.message
+    })
+  }
+})
 // ===== Status APIs =====
 app.get('/account-status', async(req,res)=>{
   const snap=await get(ref(db,'accounts'))
