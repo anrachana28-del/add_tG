@@ -399,7 +399,7 @@ app.post('/members', async (req, res) => {
 })
 
 // ===== Add Member =====
-aapp.post('/add-member', async (req, res) => {
+app.post('/add-member', async (req, res) => {
   try {
     let { username, user_id, access_hash, targetGroup } = req.body
 
