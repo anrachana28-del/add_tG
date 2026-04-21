@@ -235,7 +235,11 @@ async function refreshAccountStatus(account){
 async function checkTGAccount(account){
   try{
     await refreshAccountStatus(account)
-    const client=await getClient(account)
+
+    // 👉 reuse client if exists
+    const client = await getClient(account)
+    if(!client) throw new Error("No client")
+
     await client.getMe()
 
     account.status="active"
@@ -247,6 +251,7 @@ async function checkTGAccount(account){
       lastChecked:account.lastChecked,
       floodWaitUntil:null
     })
+
   }catch(err){
     const wait=parseFlood(err)
     let status="error", floodUntil=null
@@ -270,15 +275,40 @@ async function checkTGAccount(account){
 }
 
 // ===== Auto Check =====
-async function autoCheck(){
-  for(const acc of accounts){
-    await refreshAccountStatus(acc)
+let isChecking = false
+let index = 0
+
+async function autoCheck() {
+  if (isChecking) return
+  isChecking = true
+
+  try {
+    if (!accounts.length) return
+
+    const acc = accounts[index % accounts.length]
+    index++
+
+    if (!acc) return
+
+    // 👉 only check if needed
+    if (acc.status === "active" && !acc.floodWaitUntil) {
+      await sleep(3000)
+      return
+    }
+
     await checkTGAccount(acc)
-    await sleep(2000)
+
+    await sleep(8000)
+
+  } catch (err) {
+    console.log("autoCheck error:", err.message)
+  } finally {
+    isChecking = false
   }
 }
-setInterval(autoCheck,60000)
-autoCheck()
+
+// 👉 slower interval (IMPORTANT)
+setInterval(autoCheck, 10 * 60 * 1000)
 
 // ===== Get Available Account =====
 let accIndex = 0
@@ -291,16 +321,16 @@ function getAvailableAccount(){
     let acc = accounts[idx]
 
     if(
+      acc &&
       acc.status === "active" &&
-      acc.status !== "error" &&
       (!acc.floodWaitUntil || acc.floodWaitUntil < now)
     ){
-      accIndex = idx + 1 // 🔥 switch next account
+      accIndex = idx + 1
       return acc
     }
   }
 
-  return null // ❌ no account available
+  return null
 }
 
 // ===== Auto Join =====
