@@ -399,7 +399,7 @@ app.post('/members', async (req, res) => {
 })
 
 // ===== Add Member =====
-app.post('/add-member', async (req, res) => {
+aapp.post('/add-member', async (req, res) => {
   try {
     let { username, user_id, access_hash, targetGroup } = req.body
 
@@ -423,7 +423,7 @@ app.post('/add-member', async (req, res) => {
 
     const client = await getClient(acc)
 
-    // ================= PRECHECK GROUP =================
+    // ================= GROUP RESOLVE =================
     let groupEntity
     try {
       groupEntity = await client.getEntity(targetGroup)
@@ -435,7 +435,7 @@ app.post('/add-member', async (req, res) => {
       })
     }
 
-    // ================= RESOLVE USER =================
+    // ================= USER RESOLVE =================
     const cleanUsername = normalizeUsername(username)
 
     let userEntity
@@ -456,7 +456,7 @@ app.post('/add-member', async (req, res) => {
       })
     }
 
-    // ================= CHECK ALREADY IN GROUP =================
+    // ================= CHECK EXISTING =================
     try {
       await client.getParticipant(groupEntity, userEntity)
 
@@ -465,47 +465,14 @@ app.post('/add-member', async (req, res) => {
         reason: "Already in group",
         accountUsed: acc.phone
       })
-    } catch {
-      // not in group → continue
-    }
+    } catch {}
 
     // ================= INVITE =================
-    let inviteOk = false
-
     try {
       await client.invoke(new Api.channels.InviteToChannel({
         channel: groupEntity,
         users: [userEntity]
       }))
-
-      // ================= DELAY BEFORE VERIFY =================
-      await sleep(4000)
-
-      // ================= VERIFY (PRO SAFE) =================
-      let joined = false
-
-      for (let i = 0; i < 2; i++) {
-        try {
-          await client.getParticipant(groupEntity, userEntity)
-          joined = true
-          break
-        } catch {
-          await sleep(2500)
-        }
-      }
-
-      // fallback check
-      if (!joined && user_id) {
-        try {
-          const list = await client.getParticipants(groupEntity, { limit: 50 })
-          joined = list.some(p => p.id == user_id)
-        } catch {}
-      }
-
-      if (joined) {
-        inviteOk = true
-      }
-
     } catch (err) {
       const wait = parseFlood(err)
 
@@ -534,8 +501,43 @@ app.post('/add-member', async (req, res) => {
       })
     }
 
+    // ================= PRO VERIFY ENGINE =================
+    await sleep(7000)
+
+    let joined = false
+
+    // 1. PRIMARY CHECK
+    try {
+      await client.getParticipant(groupEntity, userEntity)
+      joined = true
+    } catch {}
+
+    // 2. RETRY CHECK
+    if (!joined) {
+      for (let i = 0; i < 3; i++) {
+        await sleep(3000)
+
+        try {
+          await client.getParticipant(groupEntity, userEntity)
+          joined = true
+          break
+        } catch {}
+      }
+    }
+
+    // 3. BACKUP CHECK
+    if (!joined && user_id) {
+      try {
+        const list = await client.getParticipants(groupEntity, {
+          limit: 200
+        })
+
+        joined = list.some(p => p.id == user_id)
+      } catch {}
+    }
+
     // ================= RESULT =================
-    if (inviteOk) {
+    if (joined) {
       acc.addCount = (acc.addCount || 0) + 1
 
       await update(ref(db, `accounts/${acc.id}`), {
