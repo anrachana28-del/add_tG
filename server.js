@@ -9,26 +9,22 @@ import { fileURLToPath } from 'url'
 
 const app = express()
 app.use(express.json())
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms)) }
 
-// ================= UTIL =================
-const sleep = (ms) => new Promise(r => setTimeout(r, ms))
-
-// ================= FIREBASE =================
+// ===== Firebase =====
 const firebaseConfig = {
   apiKey: process.env.FIREBASE_API_KEY,
   authDomain: process.env.FIREBASE_AUTH_DOMAIN,
   databaseURL: process.env.FIREBASE_DB_URL
 }
-
 initializeApp(firebaseConfig)
 const db = getDatabase()
 
-// ================= DATA =================
+// ===== Accounts =====
 const accounts = []
-const clientCache = {}
-let isChecking = false
+const clients = {}
 
-// ================= NORMALIZE =================
+// ===== Normalize Username =====
 function normalizeUsername(input){
   if(!input) return null
   let u = input.trim()
@@ -36,6 +32,7 @@ function normalizeUsername(input){
   return u.replace("@","").trim()
 }
 
+// ===== Normalize Group =====
 function normalizeGroup(group){
   if(!group) return group
   let g = group.trim()
@@ -43,12 +40,11 @@ function normalizeGroup(group){
   return g
 }
 
-// ================= SAVE ACCOUNT =================
+// ===== Save Account =====
 async function saveAccountToFirebase(account){
   try{
     const snap = await get(ref(db,'accounts'))
     const data = snap.val() || {}
-
     const exists = Object.values(data).some(a => a.phone === account.phone)
     if(exists) return false
 
@@ -60,17 +56,19 @@ async function saveAccountToFirebase(account){
       status:"active",
       floodWaitUntil:null,
       addCount:0,
+      lastChecked:null,
       createdAt:Date.now()
     })
 
+    console.log(`✅ Saved ${account.phone}`)
     return true
-  }catch(e){
-    console.log(e.message)
+  }catch(err){
+    console.log("❌ Save error:",err.message)
     return false
   }
 }
 
-// ================= LOAD ACCOUNTS =================
+// ===== Load ENV Accounts =====
 let i=1
 while(process.env[`TG_ACCOUNT_${i}_PHONE`]){
   const api_id=Number(process.env[`TG_ACCOUNT_${i}_API_ID`])
@@ -83,8 +81,9 @@ while(process.env[`TG_ACCOUNT_${i}_PHONE`]){
   const account={
     phone, api_id, api_hash, session,
     id:`TG_ACCOUNT_${i}`,
-    status:"active",
+    status:"pending",
     floodWaitUntil:null,
+    lastChecked:null,
     addCount:0
   }
 
@@ -93,123 +92,236 @@ while(process.env[`TG_ACCOUNT_${i}_PHONE`]){
   i++
 }
 
-// ================= TELEGRAM CLIENT =================
+// ===== Telegram Client =====
 async function getClient(account){
 
-  if(clientCache[account.id]){
+  // ===== 1. CLEAN DEAD CLIENT =====
+  if(clients[account.id]){
     try{
-      await clientCache[account.id].getMe()
-      return clientCache[account.id]
-    }catch{
-      delete clientCache[account.id]
+      if(!clients[account.id].connected){
+        console.log(`🔄 Reconnecting cached ${account.phone}`)
+        await clients[account.id].connect()
+      }
+
+      await clients[account.id].getMe()
+      return clients[account.id] // ✅ still valid
+
+    }catch(err){
+      console.log(`♻️ Removing dead client ${account.phone}`)
+      delete clients[account.id]
     }
   }
 
+  // ===== 2. CREATE NEW CLIENT =====
   const client = new TelegramClient(
     new StringSession(account.session),
     account.api_id,
     account.api_hash,
-    { connectionRetries: 3 }
+    {
+      connectionRetries: 5,
+      autoReconnect: true
+    }
   )
 
-  await client.connect()
-  await client.getMe()
+  try{
+    // ===== 3. CONNECT =====
+    await client.connect()
 
-  clientCache[account.id] = client
-  return client
+    // ===== 4. VERIFY SESSION =====
+    await client.getMe()
+
+    // ===== 5. AUTO RECONNECT GUARD =====
+    client.addEventHandler(async () => {
+      try{
+        if(!client.connected){
+          console.log(`🔄 Auto reconnect ${account.phone}`)
+          await client.connect()
+        }
+      }catch(e){
+        console.log(`⚠️ Reconnect failed ${account.phone}`)
+      }
+    })
+
+    // ===== 6. SAVE SESSION (AUTO UPDATE) =====
+    const newSession = client.session.save()
+
+    if(newSession !== account.session){
+      account.session = newSession
+
+      await update(ref(db,`accounts/${account.id}`),{
+        session: newSession
+      })
+
+      console.log(`🔄 Session updated ${account.phone}`)
+    }
+
+    // ===== 7. MARK ACTIVE =====
+    account.status = "active"
+    account.lastChecked = Date.now()
+
+    await update(ref(db,`accounts/${account.id}`),{
+      status:"active",
+      lastChecked:account.lastChecked,
+      floodWaitUntil:null
+    })
+
+    // ===== 8. SAVE CLIENT =====
+    clients[account.id] = client
+
+    return client
+
+  }catch(err){
+
+    console.log(`❌ Client init failed ${account.phone}:`, err.message)
+
+    // ===== 9. HANDLE FLOODWAIT =====
+    const wait = parseFlood(err)
+
+    if(wait){
+      const until = Date.now() + wait * 1000
+
+      account.status = "floodwait"
+      account.floodWaitUntil = until
+
+      await update(ref(db,`accounts/${account.id}`),{
+        status:"floodwait",
+        floodWaitUntil: until,
+        error: err.message
+      })
+
+    }else{
+      // ===== 10. SESSION INVALID =====
+      account.status = "error"
+
+      await update(ref(db,`accounts/${account.id}`),{
+        status:"error",
+        error: err.message,
+        lastChecked: Date.now()
+      })
+    }
+
+    return null
+  }
 }
 
-// ================= FLOOD PARSER =================
+// ===== Flood Parse =====
 function parseFlood(err){
-  const msg = err.message || ""
-  const m = msg.match(/(\d+)/)
-  return m ? Number(m[1]) : null
+  const msg=err.message||""
+  const m1=msg.match(/FLOOD_WAIT_(\d+)/)
+  const m2=msg.match(/wait of (\d+) seconds/i)
+  if(m1) return Number(m1[1])
+  if(m2) return Number(m2[1])
+  return null
 }
 
-// ================= REFRESH =================
+// ===== Refresh Account =====
 async function refreshAccountStatus(account){
   const now = Date.now()
 
   if(account.floodWaitUntil && account.floodWaitUntil < now){
     account.floodWaitUntil = null
+    account.status = "active"
 
     await update(ref(db,`accounts/${account.id}`),{
       status:"active",
       floodWaitUntil:null
     })
+
+    console.log(`✅ ${account.phone} back to active`)
   }
 }
 
-// ================= CHECK ACCOUNT =================
+// ===== Check Account =====
 async function checkTGAccount(account){
   try{
     await refreshAccountStatus(account)
 
+    // 👉 reuse client if exists
     const client = await getClient(account)
+    if(!client) throw new Error("No client")
+
     await client.getMe()
+
+    account.status="active"
+    account.floodWaitUntil=null
+    account.lastChecked=Date.now()
 
     await update(ref(db,`accounts/${account.id}`),{
       status:"active",
-      lastChecked:Date.now()
+      lastChecked:account.lastChecked,
+      floodWaitUntil:null
     })
 
   }catch(err){
-    const wait = parseFlood(err)
-    let status="error"
-    let until=null
+    const wait=parseFlood(err)
+    let status="error", floodUntil=null
 
     if(wait){
       status="floodwait"
-      until = Date.now() + wait*1000
-      account.floodWaitUntil = until
+      floodUntil=Date.now()+wait*1000
+      account.floodWaitUntil=floodUntil
+      account.status="floodwait"
     }
+
+    account.lastChecked=Date.now()
 
     await update(ref(db,`accounts/${account.id}`),{
       status,
-      floodWaitUntil:until,
+      floodWaitUntil:floodUntil,
       error:err.message,
-      lastChecked:Date.now()
+      lastChecked:account.lastChecked
     })
   }
 }
 
-// ================= AUTO CHECK (SAFE) =================
+// ===== Auto Check =====
+let isChecking = false
 let index = 0
 
-async function autoCheck(){
-  if(isChecking) return
+async function autoCheck() {
+  if (isChecking) return
   isChecking = true
 
-  try{
-    if(!accounts.length) return
+  try {
+    if (!accounts.length) return
 
     const acc = accounts[index % accounts.length]
     index++
 
-    if(acc && acc.status !== "error"){
-      await checkTGAccount(acc)
+    if (!acc) return
+
+    // 👉 only check if needed
+    if (acc.status === "active" && !acc.floodWaitUntil) {
+      await sleep(3000)
+      return
     }
 
-    await sleep(5000)
+    await checkTGAccount(acc)
 
-  }finally{
+    await sleep(8000)
+
+  } catch (err) {
+    console.log("autoCheck error:", err.message)
+  } finally {
     isChecking = false
   }
 }
 
-setInterval(autoCheck, 15 * 60 * 1000)
+// 👉 slower interval (IMPORTANT)
+setInterval(autoCheck, 10 * 60 * 1000)
 
-// ================= AVAILABLE ACCOUNT =================
+// ===== Get Available Account =====
 let accIndex = 0
 
 function getAvailableAccount(){
   const now = Date.now()
 
-  for(let i=0;i<accounts.length;i++){
+  for(let i=0; i<accounts.length; i++){
     let idx = (accIndex + i) % accounts.length
     let acc = accounts[idx]
 
     if(
+      acc &&
       acc.status === "active" &&
       (!acc.floodWaitUntil || acc.floodWaitUntil < now)
     ){
@@ -217,10 +329,11 @@ function getAvailableAccount(){
       return acc
     }
   }
+
   return null
 }
 
-// ================= AUTO JOIN =================
+// ===== Auto Join =====
 async function autoJoin(client, group){
   const clean = normalizeGroup(group)
 
@@ -228,139 +341,264 @@ async function autoJoin(client, group){
     await client.getEntity(clean)
   }catch{
     try{
-      await client.invoke(new Api.messages.ImportChatInvite({hash:clean}))
-    }catch{}
+      await client.invoke(
+        new Api.messages.ImportChatInvite({hash:clean})
+      )
+    }catch(e){}
   }
 }
 
-// ================= AUTO JOIN ALL =================
+// ===== Auto Join All =====
 async function autoJoinAllAccounts(group){
   for(const acc of accounts){
     try{
       const client = await getClient(acc)
       await autoJoin(client, group)
       await sleep(1000)
-    }catch{}
+    }catch(e){}
   }
 }
 
-// ================= FIXED ROUTE (IMPORTANT) =================
-app.post('/auto-join', async (req,res)=>{
-  try{
-    const { group, account } = req.body
-
-    const acc = accounts.find(a=>a.id===account)
-    if(!acc) return res.json({error:"not found"})
-
-    const client = await getClient(acc)
-    await autoJoin(client, group)
-
-    res.json({status:"success"})
-  }catch(err){
-    res.json({status:"failed",error:err.message})
-  }
-})
-
-// ================= MEMBERS =================
-let lastCall = 0
-
-app.post('/members', async (req,res)=>{
-  try{
-    if(Date.now()-lastCall < 5000){
-      return res.json({error:"rate limit"})
-    }
-    lastCall = Date.now()
-
-    let {group,offset=0,limit=50}=req.body
+// ===== Get Members =====
+app.post('/members', async (req, res) => {
+  try {
+    let { group, offset = 0, limit = 50 } = req.body
 
     const acc = getAvailableAccount()
-    if(!acc) return res.json({error:"no account"})
+    if (!acc) return res.json({ error: "No active account" })
 
     const client = await getClient(acc)
     const cleanGroup = normalizeGroup(group)
 
-    await autoJoin(client,cleanGroup)
+    await autoJoin(client, cleanGroup)
 
     const entity = await client.getEntity(cleanGroup)
 
-    const participants = await client.getParticipants(entity,{
-      offset,limit
+    const participants = await client.getParticipants(entity, {
+      offset,
+      limit
     })
+
+    const members = participants
+      .filter(p => !p.bot)
+      .map(p => ({
+        user_id: p.id,
+        username: p.username,
+        access_hash: p.access_hash
+      }))
 
     res.json({
-      members:participants.map(p=>({
-        user_id:p.id,
-        username:p.username,
-        access_hash:p.access_hash
-      })),
-      nextOffset:offset+participants.length
+      members,
+      nextOffset: offset + participants.length,
+      hasMore: participants.length === limit
     })
 
-  }catch(err){
-    res.json({error:err.message})
+  } catch (err) {
+    res.json({ error: err.message })
   }
 })
 
-// ================= ADD MEMBER =================
-app.post('/add-member', async(req,res)=>{
-  try{
-    let {username,user_id,access_hash,targetGroup}=req.body
+// ===== Add Member =====
+app.post('/add-member', async (req, res) => {
+  try {
+    let { username, user_id, access_hash, targetGroup } = req.body
 
-    const acc = getAvailableAccount()
-    if(!acc) return res.json({status:"failed"})
-
-    const client = await getClient(acc)
-    await autoJoin(client,targetGroup)
-
-    const cleanUsername = normalizeUsername(username)
-
-    let userEntity
-
-    if(cleanUsername){
-      userEntity = await client.getEntity(cleanUsername)
-    }else{
-      userEntity = new Api.InputUser({
-        userId:user_id,
-        accessHash:BigInt(access_hash)
+    // ================= VALIDATION =================
+    if (!username && !user_id) {
+      return res.json({
+        status: "failed",
+        reason: "Missing username or user_id",
+        accountUsed: "none"
       })
     }
 
-    const group = await client.getEntity(targetGroup)
+    const acc = getAvailableAccount()
+    if (!acc) {
+      return res.json({
+        status: "failed",
+        reason: "No available account (FloodWait)",
+        accountUsed: "none"
+      })
+    }
 
-    await client.invoke(new Api.channels.InviteToChannel({
-      channel:group,
-      users:[userEntity]
-    }))
+    const client = await getClient(acc)
 
-    await sleep(5000)
+    // ================= PRECHECK GROUP =================
+    let groupEntity
+    try {
+      groupEntity = await client.getEntity(targetGroup)
+    } catch {
+      return res.json({
+        status: "failed",
+        reason: "Invalid target group",
+        accountUsed: acc.phone
+      })
+    }
 
-    res.json({status:"success"})
+    // ================= RESOLVE USER =================
+    const cleanUsername = normalizeUsername(username)
 
-  }catch(err){
-    res.json({status:"failed",reason:err.message})
+    let userEntity
+    try {
+      if (cleanUsername) {
+        userEntity = await client.getEntity(cleanUsername)
+      } else {
+        userEntity = new Api.InputUser({
+          userId: user_id,
+          accessHash: BigInt(access_hash)
+        })
+      }
+    } catch {
+      return res.json({
+        status: "skipped",
+        reason: "User not found / private",
+        accountUsed: acc.phone
+      })
+    }
+
+    // ================= CHECK ALREADY IN GROUP =================
+    try {
+      await client.getParticipant(groupEntity, userEntity)
+
+      return res.json({
+        status: "skipped",
+        reason: "Already in group",
+        accountUsed: acc.phone
+      })
+    } catch {
+      // not in group → continue
+    }
+
+    // ================= INVITE =================
+    let inviteOk = false
+
+    try {
+      await client.invoke(new Api.channels.InviteToChannel({
+        channel: groupEntity,
+        users: [userEntity]
+      }))
+
+      // ================= DELAY BEFORE VERIFY =================
+      await sleep(4000)
+
+      // ================= VERIFY (PRO SAFE) =================
+      let joined = false
+
+      for (let i = 0; i < 2; i++) {
+        try {
+          await client.getParticipant(groupEntity, userEntity)
+          joined = true
+          break
+        } catch {
+          await sleep(2500)
+        }
+      }
+
+      // fallback check
+      if (!joined && user_id) {
+        try {
+          const list = await client.getParticipants(groupEntity, { limit: 50 })
+          joined = list.some(p => p.id == user_id)
+        } catch {}
+      }
+
+      if (joined) {
+        inviteOk = true
+      }
+
+    } catch (err) {
+      const wait = parseFlood(err)
+
+      if (wait) {
+        const until = Date.now() + wait * 1000
+
+        acc.status = "floodwait"
+        acc.floodWaitUntil = until
+
+        await update(ref(db, `accounts/${acc.id}`), {
+          status: "floodwait",
+          floodWaitUntil: until
+        })
+
+        return res.json({
+          status: "floodwait",
+          reason: `FloodWait ${wait}s`,
+          accountUsed: acc.phone
+        })
+      }
+
+      return res.json({
+        status: "failed",
+        reason: err.message,
+        accountUsed: acc.phone
+      })
+    }
+
+    // ================= RESULT =================
+    if (inviteOk) {
+      acc.addCount = (acc.addCount || 0) + 1
+
+      await update(ref(db, `accounts/${acc.id}`), {
+        addCount: acc.addCount
+      })
+
+      await push(ref(db, 'history'), {
+        username: cleanUsername || username,
+        user_id,
+        status: "success",
+        reason: "joined (verified)",
+        accountUsed: acc.phone,
+        timestamp: Date.now()
+      })
+
+      await sleep(20000 + Math.floor(Math.random() * 10000))
+
+      return res.json({
+        status: "success",
+        reason: "joined (verified)",
+        accountUsed: acc.phone
+      })
+    }
+
+    return res.json({
+      status: "failed",
+      reason: "invite sent but not confirmed",
+      accountUsed: acc.phone
+    })
+
+  } catch (err) {
+    return res.json({
+      status: "failed",
+      reason: err.message,
+      accountUsed: "unknown"
+    })
   }
 })
 
-// ================= STATUS =================
+// ===== Status APIs =====
 app.get('/account-status', async(req,res)=>{
-  const snap = await get(ref(db,'accounts'))
+  const snap=await get(ref(db,'accounts'))
   res.json(snap.val()||{})
 })
 
 app.get('/history', async(req,res)=>{
-  const snap = await get(ref(db,'history'))
+  const snap=await get(ref(db,'history'))
   res.json(snap.val()||{})
 })
-
-// ================= FRONTEND =================
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
+// ===== Admin Login =====
+app.post('/api/login', (req,res)=>{
+  const { username, password } = req.body
+  if(username === process.env.ADMIN_USERNAME && password === process.env.ADMIN_PASSWORD){
+    return res.json({ success:true })
+  }
+  res.status(401).json({ success:false, error:"Invalid credentials" })
+})
+// ===== Frontend =====
+const __filename=fileURLToPath(import.meta.url)
+const __dirname=path.dirname(__filename)
 
 app.use(express.static(__dirname))
-app.get('/',(req,res)=>
-  res.sendFile(path.join(__dirname,'index.html'))
-)
+app.get('/', (req,res)=>res.sendFile(path.join(__dirname,'index.html')))
 
-// ================= START =================
-const PORT = process.env.PORT || 3000
-app.listen(PORT,()=>console.log("🚀 RUNNING"))
+const PORT=process.env.PORT||3000
+app.listen(PORT,()=>console.log(`🚀 Server running on ${PORT}`))
