@@ -23,7 +23,21 @@ const db = getDatabase()
 // ===== Accounts =====
 const accounts = []
 const clients = {}
+setInterval(async () => {
+  for (const id in clients) {
+    try {
+      const client = clients[id]
 
+      if (!client.connected) {
+        console.log(`🧹 Remove ${id}`)
+        await client.disconnect()
+        delete clients[id]
+      }
+    } catch {
+      delete clients[id]
+    }
+  }
+}, 5 * 60 * 1000)
 // ===== Normalize Username =====
 function normalizeUsername(input){
   if(!input) return null
@@ -316,21 +330,17 @@ let accIndex = 0
 function getAvailableAccount(){
   const now = Date.now()
 
-  for(let i=0; i<accounts.length; i++){
-    let idx = (accIndex + i) % accounts.length
-    let acc = accounts[idx]
+  const available = accounts.filter(acc =>
+    acc.status === "active" &&
+    (!acc.floodWaitUntil || acc.floodWaitUntil < now)
+  )
 
-    if(
-      acc &&
-      acc.status === "active" &&
-      (!acc.floodWaitUntil || acc.floodWaitUntil < now)
-    ){
-      accIndex = idx + 1
-      return acc
-    }
-  }
+  if(!available.length) return null
 
-  return null
+  const acc = available[accIndex % available.length]
+  accIndex++
+
+  return acc
 }
 
 // ===== Auto Join =====
@@ -362,22 +372,45 @@ async function autoJoinAllAccounts(group){
 // ===== Get Members =====
 app.post('/members', async (req, res) => {
   try {
-    let { group, offset = 0, limit = 50 } = req.body
+    let { group, offset = 0, limit = 200 } = req.body
+
+    // 🔒 កំណត់ limit អតិបរមា
+    limit = Math.min(limit, 200)
 
     const acc = getAvailableAccount()
-    if (!acc) return res.json({ error: "No active account" })
+    if (!acc) {
+      return res.json({ error: "No active account" })
+    }
 
     const client = await getClient(acc)
+    if (!client) {
+      return res.json({ error: "Client failed" })
+    }
+
     const cleanGroup = normalizeGroup(group)
 
+    // 👉 auto join
     await autoJoin(client, cleanGroup)
 
     const entity = await client.getEntity(cleanGroup)
 
-    const participants = await client.getParticipants(entity, {
-      offset,
-      limit
-    })
+    // ⏱️ delay បន្តិច កាត់បន្ថយ flood
+    await sleep(1500)
+
+    // 🔁 retry system (ការពារ error)
+    let participants = []
+    for (let i = 0; i < 3; i++) {
+      try {
+        participants = await client.getParticipants(entity, {
+          offset,
+          limit,
+          aggressive: true // ⚡ លឿន
+        })
+        break
+      } catch (e) {
+        await sleep(2000)
+      }
+    }
 
     const members = participants
       .filter(p => !p.bot)
@@ -387,14 +420,14 @@ app.post('/members', async (req, res) => {
         access_hash: p.access_hash
       }))
 
-    res.json({
+    return res.json({
       members,
       nextOffset: offset + participants.length,
       hasMore: participants.length === limit
     })
 
   } catch (err) {
-    res.json({ error: err.message })
+    return res.json({ error: err.message })
   }
 })
 
