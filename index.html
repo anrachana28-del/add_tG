@@ -382,7 +382,9 @@ const loadingBarWrapper = document.getElementById("loadingBarWrapper")
 startBtn.onclick = async () => {
   const sourceValue = document.getElementById("source").value.trim()
   const target = document.getElementById("target").value.trim()
-  if (!sourceValue || !target) return alert("Enter usernames / links and target group")
+
+  if (!sourceValue || !target)
+    return alert("Enter usernames / links and target group")
 
   await loadHistory()
 
@@ -395,6 +397,7 @@ startBtn.onclick = async () => {
 
   let isGroupMode = sourceValue.includes("t.me/") && !sourceValue.includes("\n")
 
+  // ================= SUMMARY =================
   function updateSummary(statusType) {
     if (statusType === "success") successCount++
     else if (statusType === "failed") failedCount++
@@ -409,11 +412,12 @@ startBtn.onclick = async () => {
     updateSummary(status)
     total++
     counter.innerText = total
-    progress.style.width = (total % 100) + "%"
+    progress.style.width = Math.min((total / 100) * 100, 100) + "%"
   }
 
   let accounts = await getAccounts()
 
+  // ================= ACCOUNT ROTATION =================
   function getNextAccount() {
     const keys = Object.keys(accounts)
     const now = Date.now()
@@ -421,6 +425,7 @@ startBtn.onclick = async () => {
     for (let i = 0; i < keys.length; i++) {
       let idx = (accIndex + i) % keys.length
       let acc = accounts[keys[idx]]
+
       if (acc.status === "active" && (!acc.floodWaitUntil || acc.floodWaitUntil < now)) {
         return { acc, index: idx }
       }
@@ -428,31 +433,29 @@ startBtn.onclick = async () => {
     return null
   }
 
+  // ================= ADD MEMBER =================
   async function addWithRotation(member) {
     const userKey = member.username || member.user_id
     let added = false
 
     while (!added) {
-      accounts = await getAccounts() // refresh accounts
-
+      accounts = await getAccounts()
       let accObj = getNextAccount()
 
       if (!accObj) {
-        // 🔹 All accounts flood → wait until earliest flood expires
         let nextTimes = Object.values(accounts)
           .filter(a => a.floodWaitUntil)
           .map(a => a.floodWaitUntil)
 
         let nextTime = nextTimes.length ? Math.min(...nextTimes) : Date.now() + 60000
         let waitMs = nextTime - Date.now()
-        let timeStr = new Date(nextTime).toLocaleString('en-US', { hour12: true })
+        let timeStr = new Date(nextTime).toLocaleString()
 
-        status.innerText = `⚠️ All accounts Flood wait, auto resume at ${timeStr}`
-        consoleBox.innerHTML += `<p style="color:red;">⚠️ All accounts Flood wait → ${timeStr}</p>`
+        status.innerText = `⚠️ All accounts Flood → resume ${timeStr}`
+        consoleBox.innerHTML += `<p style="color:red;">⚠️ Wait until ${timeStr}</p>`
 
-        // ✅ wait until first account available
         await new Promise(r => setTimeout(r, waitMs))
-        continue // try again after wait
+        continue
       }
 
       let acc = accObj.acc
@@ -470,84 +473,92 @@ startBtn.onclick = async () => {
 
         const result = await res.json()
 
-       if (result.status === "success" && result.verified === true) {
+        // ================= FINAL LOGIC =================
 
-  log(`${userKey} → SUCCESS (CONFIRMED)`, userKey, "lime")
-  processResult("success")
+        if (result.status === "success") {
 
-  await countdown(20, "Next account delay")
-  accIndex = (accIndex + 1) % Object.keys(accounts).length
-  added = true
+          log(`${userKey} → SUCCESS`, userKey, "lime")
+          processResult("success")
 
-} else if (result.status === "success" && result.verified === false) {
+          await countdown(20, "Next delay")
+          accIndex = (accIndex + 1) % Object.keys(accounts).length
+          added = true
 
-  log(`${userKey} → NOT JOINED (UNCONFIRMED)`, userKey, "orange")
-  processResult("failed")
+        } 
+        else if (result.status === "skipped") {
 
-  accIndex = (accIndex + 1) % Object.keys(accounts).length
-  added = true
+          log(`${userKey} → SKIPPED`, userKey, "orange")
+          processResult("skipped")
 
-} else if (result.reason && result.reason.toLowerCase().includes("flood")) {
+          accIndex = (accIndex + 1) % Object.keys(accounts).length
+          added = true
 
-  let match = result.reason.match(/(\d+)/)
-  let waitSec = match ? Number(match[1]) : 60
-  acc.floodWaitUntil = Date.now() + waitSec * 1000
-  acc.status = "floodwait"
+        } 
+        else if (result.reason && result.reason.toLowerCase().includes("flood")) {
 
-  let timeStr = new Date(acc.floodWaitUntil).toLocaleString('en-US', { hour12: true })
-  log(`⚠️ ${acc.phone || acc.id} Flood → ${timeStr}`, userKey, "orange")
+          let match = result.reason.match(/(\d+)/)
+          let waitSec = match ? Number(match[1]) : 60
 
-  accIndex = (accIndex + 1) % Object.keys(accounts).length
+          acc.floodWaitUntil = Date.now() + waitSec * 1000
+          acc.status = "floodwait"
 
-} else {
+          let timeStr = new Date(acc.floodWaitUntil).toLocaleString()
+          log(`⚠️ Flood → ${timeStr}`, userKey, "orange")
 
-  log(`${userKey} → FAILED`, userKey, "red")
-  processResult("failed")
+          accIndex = (accIndex + 1) % Object.keys(accounts).length
 
-  accIndex = (accIndex + 1) % Object.keys(accounts).length
-  added = true
-}
+        } 
+        else {
+
+          log(`${userKey} → FAILED`, userKey, "red")
+          processResult("failed")
+
+          accIndex = (accIndex + 1) % Object.keys(accounts).length
+          added = true
+        }
 
       } catch (err) {
         log(`❌ Error: ${err.message}`, userKey, "red")
         processResult("failed")
+
         accIndex = (accIndex + 1) % Object.keys(accounts).length
         added = true
       }
     }
   }
 
-  // ===============================
-  // GROUP MODE
-  // ===============================
+  // ================= GROUP MODE =================
   if (isGroupMode) {
-    status.innerText = "Joining source group..."
+    status.innerText = "Joining groups..."
     await autoJoinAllAccounts(sourceValue)
-
-    status.innerText = "Joining target group..."
     await autoJoinAllAccounts(target)
 
     while (true) {
       status.innerText = "Fetching members..."
+
       const res = await fetch("/members", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ group: sourceValue, offset, limit: 50 })
       })
+
       const data = await res.json()
       if (data.error) break
 
       const members = data.members || []
       if (!members.length) break
+
       offset = data.nextOffset
 
       for (const m of members) {
         const userKey = m.user_id || m.username
+
         if (historySet.has(userKey)) {
           log(`⏭️ Skipped ${userKey}`, userKey, "orange")
           processResult("skipped")
           continue
         }
+
         await addWithRotation({
           username: m.username,
           user_id: m.user_id,
@@ -558,13 +569,12 @@ startBtn.onclick = async () => {
     }
   }
 
-  // ===============================
-  // TEXT MODE
-  // ===============================
+  // ================= TEXT MODE =================
   else {
-    status.innerText = "Joining target group..."
+    status.innerText = "Joining target..."
     await autoJoinAllAccounts(target)
-    const userList = sourceValue.split("\n").map(u => u.trim()).filter(u => u)
+
+    const userList = sourceValue.split("\n").map(u => u.trim()).filter(Boolean)
 
     for (const u of userList) {
       if (historySet.has(u)) {
@@ -572,6 +582,7 @@ startBtn.onclick = async () => {
         processResult("skipped")
         continue
       }
+
       await addWithRotation({ username: u, targetGroup: target })
     }
   }
@@ -579,7 +590,6 @@ startBtn.onclick = async () => {
   loadingBarWrapper.classList.add("hidden")
   status.innerText = "Finished ✅"
 }
-// ===== Countdown Function =====
 async function countdown(seconds, message) {
   for (let i = seconds; i > 0; i--) {
     status.innerText = `${message}: ${i}s`
